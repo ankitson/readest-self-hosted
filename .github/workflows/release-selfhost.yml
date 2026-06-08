@@ -1,0 +1,116 @@
+name: Release Selfhost
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Selfhost release tag to create or update
+        required: true
+        type: string
+  push:
+    tags:
+      - 'v*-selfhost'
+      - 'selfhost-v*'
+
+permissions:
+  contents: write
+
+env:
+  RELEASE_TAG: ${{ github.ref_type == 'tag' && github.ref_name || inputs.tag }}
+
+jobs:
+  build:
+    uses: ./.github/workflows/build-selfhost.yml
+    secrets: inherit
+
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: build
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+
+      - name: Setup Node
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
+        with:
+          node-version: 24
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          path: artifacts
+
+      - name: Prepare release assets
+        run: |
+          set -euo pipefail
+          mkdir -p release-assets
+          find artifacts -type f -exec cp {} release-assets/ \;
+          rm -f release-assets/latest.json
+          node <<'NODE'
+          const fs = require('node:fs');
+          const path = require('node:path');
+
+          const releaseTag = process.env.RELEASE_TAG;
+          const repository = process.env.GITHUB_REPOSITORY;
+          const version = JSON.parse(
+            fs.readFileSync('apps/readest-app/package.json', 'utf8'),
+          ).version;
+          const baseUrl = `https://github.com/${repository}/releases/download/${releaseTag}`;
+          const dir = 'release-assets';
+          const files = fs.readdirSync(dir);
+          const urlFor = (name) => `${baseUrl}/${encodeURIComponent(name)}`;
+          const readSignature = (assetName) => {
+            const sigPath = path.join(dir, `${assetName}.sig`);
+            if (!fs.existsSync(sigPath)) {
+              throw new Error(`Missing updater signature for ${assetName}`);
+            }
+            return fs.readFileSync(sigPath, 'utf8').trim();
+          };
+
+          const windowsAsset = files.find((name) => /_x64-setup\.exe$/i.test(name));
+          const androidAsset = files.find((name) => /_universal\.apk$/i.test(name));
+          if (!windowsAsset) {
+            throw new Error('Missing Windows x64 installer artifact');
+          }
+          if (!androidAsset) {
+            throw new Error('Missing Android APK artifact');
+          }
+
+          const latest = {
+            version,
+            notes: `Readest Selfhost ${releaseTag}`,
+            pub_date: new Date().toISOString(),
+            platforms: {
+              'windows-x86_64': {
+                signature: readSignature(windowsAsset),
+                url: urlFor(windowsAsset),
+              },
+              'android-universal': {
+                signature: readSignature(androidAsset),
+                url: urlFor(androidAsset),
+              },
+            },
+          };
+
+          fs.writeFileSync(path.join(dir, 'latest.json'), `${JSON.stringify(latest, null, 2)}\n`);
+          NODE
+
+      - name: Create or update GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          if ! git rev-parse -q --verify "refs/tags/${RELEASE_TAG}" >/dev/null; then
+            git tag "$RELEASE_TAG" "$GITHUB_SHA"
+            git push origin "refs/tags/${RELEASE_TAG}"
+          fi
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release edit "$RELEASE_TAG" \
+              --title "Readest Selfhost ${RELEASE_TAG}" \
+              --notes "Readest Selfhost client release ${RELEASE_TAG}"
+          else
+            gh release create "$RELEASE_TAG" \
+              --title "Readest Selfhost ${RELEASE_TAG}" \
+              --notes "Readest Selfhost client release ${RELEASE_TAG}"
+          fi
+          gh release upload "$RELEASE_TAG" release-assets/* --clobber

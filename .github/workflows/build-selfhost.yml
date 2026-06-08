@@ -1,0 +1,247 @@
+name: Build Selfhost
+
+on:
+  workflow_dispatch:
+  workflow_call:
+    secrets:
+      TAURI_SIGNING_PRIVATE_KEY:
+        required: true
+      TAURI_SIGNING_PRIVATE_KEY_PASSWORD:
+        required: true
+      TAURI_UPDATER_PUBKEY:
+        required: true
+      ANDROID_KEYSTORE_BASE64:
+        required: true
+      ANDROID_KEYSTORE_PASSWORD:
+        required: true
+      ANDROID_KEY_ALIAS:
+        required: true
+      ANDROID_KEY_PASSWORD:
+        required: true
+  push:
+    tags:
+      - 'v*-selfhost'
+      - 'selfhost-v*'
+
+permissions:
+  contents: read
+
+env:
+  SELFHOST_PRODUCT_NAME: Readest Selfhost
+  SELFHOST_APP_IDENTIFIER: com.readest.selfhost
+  TAURI_UPDATER_ENDPOINT: https://github.com/${{ github.repository }}/releases/latest/download/latest.json
+
+jobs:
+  build-windows-x64:
+    runs-on: windows-latest
+    timeout-minutes: 90
+    env:
+      TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+      TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+      TAURI_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+      TAURI_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+      TAURI_UPDATER_PUBKEY: ${{ secrets.TAURI_UPDATER_PUBKEY }}
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+
+      - name: Initialize git submodules
+        run: git submodule update --init --recursive
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6
+
+      - name: Setup Node
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile --prefer-offline
+
+      - name: Setup app vendors
+        run: pnpm --filter @readest/readest-app setup-vendors
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        with:
+          key: windows-selfhost-x64-cargo
+
+      - name: Validate signing secrets
+        shell: bash
+        run: |
+          set -euo pipefail
+          for name in TAURI_SIGNING_PRIVATE_KEY TAURI_SIGNING_PRIVATE_KEY_PASSWORD TAURI_UPDATER_PUBKEY; do
+            if [ -z "${!name:-}" ]; then
+              echo "::error::$name secret is required"
+              exit 1
+            fi
+          done
+
+      - name: Build Windows x64 installer
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd apps/readest-app
+          pnpm patch-tauri-selfhost
+          pnpm tauri build --target x86_64-pc-windows-msvc --bundles nsis
+
+      - name: Collect Windows artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd apps/readest-app
+          version=$(node -p "require('./package.json').version")
+          mkdir -p dist/selfhost/windows
+          installer=$(find src-tauri/target -path '*/release/bundle/nsis/*.exe' -type f | head -n 1)
+          if [ -z "$installer" ]; then
+            echo "::error::Windows installer was not produced"
+            exit 1
+          fi
+          asset="dist/selfhost/windows/Readest-Selfhost_${version}_x64-setup.exe"
+          cp "$installer" "$asset"
+          if [ -f "$installer.sig" ]; then
+            cp "$installer.sig" "$asset.sig"
+          else
+            pnpm tauri signer sign "$asset"
+          fi
+
+      - name: Upload Windows artifacts
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: selfhost-windows-x64
+          path: apps/readest-app/dist/selfhost/windows/*
+          if-no-files-found: error
+
+  build-android-apk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+      TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+      TAURI_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+      TAURI_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+      TAURI_UPDATER_PUBKEY: ${{ secrets.TAURI_UPDATER_PUBKEY }}
+      ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+      ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+      ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+      ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+
+      - name: Initialize git submodules
+        run: git submodule update --init --recursive
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6
+
+      - name: Setup Node
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Setup Java
+        uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654 # v5
+        with:
+          distribution: zulu
+          java-version: '17'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@40fd30fb8d7440372e1316f5d1809ec01dcd3699 # v4
+
+      - name: Install Android NDK
+        run: sdkmanager "ndk;28.2.13676358"
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile --prefer-offline
+
+      - name: Setup app vendors
+        run: pnpm --filter @readest/readest-app setup-vendors
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
+        with:
+          targets: aarch64-linux-android,armv7-linux-androideabi,i686-linux-android,x86_64-linux-android
+
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        with:
+          key: android-selfhost-cargo
+
+      - name: Validate signing secrets
+        run: |
+          set -euo pipefail
+          for name in \
+            TAURI_SIGNING_PRIVATE_KEY \
+            TAURI_SIGNING_PRIVATE_KEY_PASSWORD \
+            TAURI_UPDATER_PUBKEY \
+            ANDROID_KEYSTORE_BASE64 \
+            ANDROID_KEYSTORE_PASSWORD \
+            ANDROID_KEY_ALIAS \
+            ANDROID_KEY_PASSWORD
+          do
+            if [ -z "${!name:-}" ]; then
+              echo "::error::$name secret is required"
+              exit 1
+            fi
+          done
+
+      - name: Build Android universal APK
+        env:
+          NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/28.2.13676358
+        run: |
+          set -euo pipefail
+          cd apps/readest-app
+          rm -rf src-tauri/gen/android
+          pnpm patch-tauri-selfhost
+          pnpm tauri android init
+          pnpm tauri icon ../../data/icons/readest-book.png
+
+          pushd src-tauri/gen/android
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path("app/build.gradle.kts")
+          text = path.read_text()
+          old = 'keyPassword = keystoreProperties["password"] as String\n                storeFile = file(keystoreProperties["storeFile"] as String)\n                storePassword = keystoreProperties["password"] as String'
+          new = 'keyPassword = keystoreProperties["keyPassword"] as String\n                storeFile = file(keystoreProperties["storeFile"] as String)\n                storePassword = keystoreProperties["storePassword"] as String'
+          if old not in text:
+              raise SystemExit("Expected Android signing block was not found")
+          path.write_text(text.replace(old, new))
+          PY
+          {
+            printf 'keyAlias=%s\n' "$ANDROID_KEY_ALIAS"
+            printf 'keyPassword=%s\n' "$ANDROID_KEY_PASSWORD"
+            printf 'storePassword=%s\n' "$ANDROID_KEYSTORE_PASSWORD"
+            printf 'storeFile=%s\n' "$RUNNER_TEMP/readest-selfhost-keystore.jks"
+          } > keystore.properties
+          base64 -d <<< "$ANDROID_KEYSTORE_BASE64" > "$RUNNER_TEMP/readest-selfhost-keystore.jks"
+          popd
+
+          pnpm tauri android build
+
+      - name: Collect Android artifacts
+        run: |
+          set -euo pipefail
+          cd apps/readest-app
+          version=$(node -p "require('./package.json').version")
+          mkdir -p dist/selfhost/android
+          apk=$(find src-tauri/gen/android/app/build/outputs/apk -type f -name '*release.apk' | head -n 1)
+          if [ -z "$apk" ]; then
+            echo "::error::Android release APK was not produced"
+            exit 1
+          fi
+          asset="dist/selfhost/android/Readest-Selfhost_${version}_universal.apk"
+          cp "$apk" "$asset"
+          pnpm tauri signer sign "$asset"
+
+      - name: Upload Android artifacts
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: selfhost-android-apk
+          path: apps/readest-app/dist/selfhost/android/*
+          if-no-files-found: error
