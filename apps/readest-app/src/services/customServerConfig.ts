@@ -2,6 +2,9 @@ export interface PublicReadestClientConfig {
   apiBaseUrl?: string | undefined;
   supabaseUrl?: string | undefined;
   supabaseAnonKey?: string | undefined;
+  objectStorageType?: string | undefined;
+  storageFixedQuota?: number | undefined;
+  translationFixedQuota?: number | undefined;
 }
 
 export interface CustomServerConfig {
@@ -46,6 +49,10 @@ interface ResolveCustomServerConfigOptions extends NormalizeUrlOptions {
   now?: () => number;
 }
 
+interface SaveCustomServerConfigOptions {
+  resetSession?: boolean;
+}
+
 const CUSTOM_SERVER_CONFIG_KEY = 'readest_custom_server_config_v1';
 
 const PUBLIC_CONFIG_PATHS = [
@@ -85,7 +92,8 @@ const isPrivateIpv4 = (hostname: string) => {
   const octets = parts.map((part) => Number(part));
   if (octets.some((octet) => !Number.isInteger(octet) || octet < 0 || octet > 255)) return false;
 
-  const [first, second] = octets;
+  const first = octets[0]!;
+  const second = octets[1]!;
   return (
     first === 10 ||
     first === 127 ||
@@ -308,10 +316,18 @@ export const resolveCustomServerConfig = async (
   };
 };
 
-export const saveCustomServerConfig = (config: CustomServerConfig) => {
+export const saveCustomServerConfig = async (
+  config: CustomServerConfig,
+  { resetSession = false }: SaveCustomServerConfigOptions = {},
+) => {
   const storage = getStorageAdapter();
-  if (!storage) return;
-  storage.setItem(CUSTOM_SERVER_CONFIG_KEY, JSON.stringify(config));
+  const previous = loadCustomServerConfig();
+  storage?.setItem(CUSTOM_SERVER_CONFIG_KEY, JSON.stringify(config));
+
+  if (resetSession && previous?.serverBaseUrl !== config.serverBaseUrl) {
+    const { clearAuthSessionForServerChange } = await import('@/helpers/auth');
+    await clearAuthSessionForServerChange();
+  }
 };
 
 export const loadCustomServerConfig = (): CustomServerConfig | null => {
@@ -351,9 +367,17 @@ export const loadCustomServerConfig = (): CustomServerConfig | null => {
   }
 };
 
-export const clearCustomServerConfig = () => {
+export const clearCustomServerConfig = async ({
+  resetSession = false,
+}: SaveCustomServerConfigOptions = {}) => {
+  const previous = loadCustomServerConfig();
   const storage = getStorageAdapter();
   storage?.removeItem(CUSTOM_SERVER_CONFIG_KEY);
+
+  if (resetSession && previous) {
+    const { clearAuthSessionForServerChange } = await import('@/helpers/auth');
+    await clearAuthSessionForServerChange();
+  }
 };
 
 export const getCustomServerRuntimeConfig = (): PublicReadestClientConfig | null => {

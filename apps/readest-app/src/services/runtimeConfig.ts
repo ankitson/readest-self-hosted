@@ -1,10 +1,12 @@
+import { getCustomServerRuntimeConfig } from './customServerConfig';
+
 export interface ReadestRuntimeConfig {
-  supabaseUrl?: string;
-  supabaseAnonKey?: string;
-  apiBaseUrl?: string;
-  objectStorageType?: string;
-  storageFixedQuota?: number;
-  translationFixedQuota?: number;
+  supabaseUrl?: string | undefined;
+  supabaseAnonKey?: string | undefined;
+  apiBaseUrl?: string | undefined;
+  objectStorageType?: string | undefined;
+  storageFixedQuota?: number | undefined;
+  translationFixedQuota?: number | undefined;
 }
 
 declare global {
@@ -13,8 +15,16 @@ declare global {
   }
 }
 
-export const getRuntimeConfig = () =>
-  typeof window === 'undefined' ? undefined : window.__READEST_RUNTIME_CONFIG;
+const shouldUseCustomServerConfig = () => process.env['NEXT_PUBLIC_APP_PLATFORM'] === 'tauri';
+
+export const getRuntimeConfig = (): ReadestRuntimeConfig | undefined => {
+  if (typeof window === 'undefined') return undefined;
+  if (shouldUseCustomServerConfig()) {
+    const customConfig = getCustomServerRuntimeConfig();
+    if (customConfig) return { ...window.__READEST_RUNTIME_CONFIG, ...customConfig };
+  }
+  return window.__READEST_RUNTIME_CONFIG;
+};
 
 export const getServerRuntimeConfig = (): ReadestRuntimeConfig => ({
   // Browser runtime config should prefer a public Supabase URL when provided.
