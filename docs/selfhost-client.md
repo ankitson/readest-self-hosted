@@ -90,3 +90,45 @@ For public forks and GitHub Actions:
 - keep Android signing material in GitHub Actions secrets only
 - use the fork's public GitHub Releases `latest.json` for updater metadata, not the official Readest updater endpoint
 
+## GitHub Secrets
+
+The self-hosted build and release workflows expect these repository secrets:
+
+- `TAURI_SIGNING_PRIVATE_KEY`
+- `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`
+- `TAURI_UPDATER_PUBKEY`
+- `ANDROID_KEYSTORE_BASE64`
+- `ANDROID_KEYSTORE_PASSWORD`
+- `ANDROID_KEY_ALIAS`
+- `ANDROID_KEY_PASSWORD`
+
+Generate the Tauri updater key pair with the Tauri signer, store the private key and password as secrets, and store only the public key in `TAURI_UPDATER_PUBKEY`.
+
+For Android, base64-encode the keystore file and store that encoded value in `ANDROID_KEYSTORE_BASE64`. The keystore file itself must not be committed.
+
+## Releasing a Self-host Client
+
+Use one of the self-host tag patterns:
+
+```text
+v0.11.4-selfhost
+selfhost-v0.11.4
+```
+
+Pushing one of those tags triggers the self-host build and release workflows. The release uploads the Windows x64 installer, Android APK, updater signatures, and `latest.json`.
+
+The default updater URL points at this fork's public GitHub Release metadata:
+
+```text
+https://github.com/<fork-owner>/<fork-repo>/releases/latest/download/latest.json
+```
+
+Android APKs are published by the workflow. Platform-level automatic app update behavior for sideloaded Android APKs may vary by installation source, so distribute the release URL or APK directly when needed.
+
+## Syncing Upstream
+
+The `sync-upstream.yml` workflow rebases `selfhost-main` on `readest/readest` `main`.
+
+If the rebase has conflicts, the workflow fails and leaves the fork unchanged. Resolve the conflict locally on `selfhost-main`, run the focused self-host tests and safety scan, then push the resolved branch.
+
+The workflow intentionally uses `git rebase upstream/main`; it does not force-overwrite downstream changes.

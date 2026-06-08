@@ -64,6 +64,8 @@ jobs:
             src/__tests__/helpers/auth.test.ts \
             src/__tests__/services/command-registry-extended.test.ts
 
+      - name: Run public fork safety scan
+        run: bash scripts/scan-public-fork-safety.sh
+
       - name: Push rebased branch
         run: git push origin HEAD:selfhost-main
-
