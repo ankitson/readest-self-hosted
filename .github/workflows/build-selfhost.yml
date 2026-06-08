@@ -97,7 +97,18 @@ jobs:
           cd apps/readest-app
           version=$(node -p "require('./package.json').version")
           mkdir -p dist/selfhost/windows
-          installer=$(find src-tauri/target -path '*/release/bundle/nsis/*.exe' -type f | head -n 1)
+          target_roots=()
+          for target_root in ../../target src-tauri/target; do
+            if [ -d "$target_root" ]; then
+              target_roots+=("$target_root")
+            fi
+          done
+          if [ "${#target_roots[@]}" -eq 0 ]; then
+            echo "::error::Windows target directory was not produced"
+            exit 1
+          fi
+          mapfile -t installers < <(find "${target_roots[@]}" -path '*/release/bundle/nsis/*.exe' -type f)
+          installer="${installers[0]:-}"
           if [ -z "$installer" ]; then
             echo "::error::Windows installer was not produced"
             exit 1
