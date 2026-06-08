@@ -1,0 +1,69 @@
+name: Sync Upstream Selfhost
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '37 3 * * *'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: sync-upstream-selfhost
+  cancel-in-progress: false
+
+jobs:
+  rebase-selfhost-main:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          ref: selfhost-main
+          fetch-depth: 0
+
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Rebase on upstream main
+        run: |
+          set -euo pipefail
+          git remote add upstream https://github.com/readest/readest.git
+          git fetch upstream main --tags
+          git checkout selfhost-main
+          git rebase upstream/main
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6
+
+      - name: Setup Node
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile --prefer-offline
+
+      - name: Setup app vendors
+        run: pnpm --filter @readest/readest-app setup-vendors
+
+      - name: Typecheck selfhost client
+        run: |
+          cd apps/readest-app
+          pnpm exec tsgo --noEmit
+
+      - name: Test selfhost client config
+        run: |
+          cd apps/readest-app
+          pnpm exec vitest run \
+            src/__tests__/services/customServerConfig.test.ts \
+            src/__tests__/services/environment.test.ts \
+            src/__tests__/helpers/auth.test.ts \
+            src/__tests__/services/command-registry-extended.test.ts
+
+      - name: Push rebased branch
+        run: git push origin HEAD:selfhost-main
+
