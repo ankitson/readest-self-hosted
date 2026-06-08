@@ -32,9 +32,14 @@ jobs:
         run: |
           set -euo pipefail
           git remote add upstream https://github.com/readest/readest.git
-          git fetch upstream main --tags
+          git fetch --no-recurse-submodules upstream main --tags
           git checkout selfhost-main
           git rebase upstream/main
+
+      - name: Update submodules
+        run: |
+          git submodule sync --recursive
+          git submodule update --init --recursive
 
       - name: Setup pnpm
         uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6
