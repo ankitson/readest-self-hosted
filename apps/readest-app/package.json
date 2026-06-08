@@ -82,7 +82,8 @@
     "check:all": "pnpm check:translations && pnpm check:lookbehind-regex",
     "build-check": "pnpm build && pnpm build-web && pnpm check:all",
     "worktree:new": "pnpm exec tsx scripts/worktree-new.ts",
-    "worktree:rm": "pnpm exec tsx scripts/worktree-rm.ts"
+    "worktree:rm": "pnpm exec tsx scripts/worktree-rm.ts",
+    "patch-tauri-selfhost": "node scripts/patch-tauri-selfhost.mjs"
   },
   "dependencies": {
     "@ai-sdk/openai-compatible": "^2.0.48",

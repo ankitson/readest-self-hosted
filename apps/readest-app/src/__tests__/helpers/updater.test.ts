@@ -4,6 +4,7 @@ import semver from 'semver';
 // ── Mocks for Tauri and internal modules ─────────────────────────
 const mockCheck = vi.fn();
 const mockOsType = vi.fn();
+const mockOsArch = vi.fn();
 const mockTauriFetch = vi.fn();
 
 vi.mock('@tauri-apps/plugin-updater', () => ({
@@ -12,6 +13,7 @@ vi.mock('@tauri-apps/plugin-updater', () => ({
 
 vi.mock('@tauri-apps/plugin-os', () => ({
   type: () => mockOsType(),
+  arch: () => mockOsArch(),
 }));
 
 vi.mock('@tauri-apps/plugin-http', () => ({
@@ -64,6 +66,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   localStorage.clear();
   mockIsTauriAppPlatform = false;
+  mockOsArch.mockReturnValue('aarch64');
   mockAppVersion = '1.0.0';
   MockWebviewWindowLastArgs.length = 0;
   vi.spyOn(console, 'log').mockImplementation(() => {});

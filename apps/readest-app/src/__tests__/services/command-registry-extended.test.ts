@@ -28,6 +28,7 @@ vi.mock('react-icons/tb', () => ({
 }));
 vi.mock('react-icons/md', () => ({
   MdRefresh: () => null,
+  MdDns: () => null,
 }));
 vi.mock('react-icons', () => ({
   IconType: undefined,

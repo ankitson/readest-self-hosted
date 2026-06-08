@@ -1,0 +1,375 @@
+name: Build Selfhost
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_version:
+        description: Version to package, without a leading v. Defaults to apps/readest-app/package.json.
+        required: false
+        type: string
+  workflow_call:
+    inputs:
+      release_version:
+        description: Version to package, without a leading v.
+        required: false
+        type: string
+    secrets:
+      TAURI_SIGNING_PRIVATE_KEY:
+        required: true
+      TAURI_SIGNING_PRIVATE_KEY_PASSWORD:
+        required: true
+      TAURI_UPDATER_PUBKEY:
+        required: true
+      ANDROID_KEYSTORE_BASE64:
+        required: true
+      ANDROID_KEYSTORE_PASSWORD:
+        required: true
+      ANDROID_KEY_ALIAS:
+        required: true
+      ANDROID_KEY_PASSWORD:
+        required: true
+  push:
+    tags:
+      - 'v*-selfhost'
+      - 'selfhost-v*'
+
+permissions:
+  contents: read
+
+env:
+  SELFHOST_PRODUCT_NAME: Readest Selfhost
+  SELFHOST_APP_IDENTIFIER: com.readest.selfhost
+  TAURI_UPDATER_ENDPOINT: https://github.com/${{ github.repository }}/releases/latest/download/latest.json
+  SELFHOST_RELEASE_VERSION: ${{ inputs.release_version }}
+
+jobs:
+  build-windows-x64:
+    runs-on: windows-latest
+    timeout-minutes: 90
+    env:
+      TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+      TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+      TAURI_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+      TAURI_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+      TAURI_UPDATER_PUBKEY: ${{ secrets.TAURI_UPDATER_PUBKEY }}
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+
+      - name: Initialize git submodules
+        run: git submodule update --init --recursive
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6
+
+      - name: Setup Node
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile --prefer-offline
+
+      - name: Apply release version override
+        if: env.SELFHOST_RELEASE_VERSION != ''
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd apps/readest-app
+          node - <<'NODE'
+          const fs = require('node:fs');
+          const version = process.env.SELFHOST_RELEASE_VERSION;
+          if (!/^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$/.test(version)) {
+            throw new Error(`Invalid release version: ${version}`);
+          }
+          const path = 'package.json';
+          const pkg = JSON.parse(fs.readFileSync(path, 'utf8'));
+          pkg.version = version;
+          fs.writeFileSync(path, `${JSON.stringify(pkg, null, 2)}\n`);
+          NODE
+
+      - name: Setup app vendors
+        run: pnpm --filter @readest/readest-app setup-vendors
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        with:
+          key: windows-selfhost-x64-cargo
+
+      - name: Validate signing secrets
+        shell: bash
+        run: |
+          set -euo pipefail
+          for name in TAURI_SIGNING_PRIVATE_KEY TAURI_SIGNING_PRIVATE_KEY_PASSWORD TAURI_UPDATER_PUBKEY; do
+            if [ -z "${!name:-}" ]; then
+              echo "::error::$name secret is required"
+              exit 1
+            fi
+          done
+
+      - name: Build Windows x64 installer
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd apps/readest-app
+          pnpm patch-tauri-selfhost
+          pnpm tauri build --target x86_64-pc-windows-msvc --bundles nsis
+
+      - name: Collect Windows artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd apps/readest-app
+          version=$(node -p "require('./package.json').version")
+          mkdir -p dist/selfhost/windows
+          target_roots=()
+          for target_root in ../../target src-tauri/target; do
+            if [ -d "$target_root" ]; then
+              target_roots+=("$target_root")
+            fi
+          done
+          if [ "${#target_roots[@]}" -eq 0 ]; then
+            echo "::error::Windows target directory was not produced"
+            exit 1
+          fi
+          mapfile -t installers < <(find "${target_roots[@]}" -path '*/release/bundle/nsis/*.exe' -type f)
+          installer="${installers[0]:-}"
+          if [ -z "$installer" ]; then
+            echo "::error::Windows installer was not produced"
+            exit 1
+          fi
+          asset="dist/selfhost/windows/Readest-Selfhost_${version}_x64-setup.exe"
+          cp "$installer" "$asset"
+          if [ -f "$installer.sig" ]; then
+            cp "$installer.sig" "$asset.sig"
+          else
+            pnpm tauri signer sign "$asset"
+          fi
+
+      - name: Upload Windows artifacts
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: selfhost-windows-x64
+          path: apps/readest-app/dist/selfhost/windows/*
+          if-no-files-found: error
+
+  build-android-apk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+      TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+      TAURI_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+      TAURI_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+      TAURI_UPDATER_PUBKEY: ${{ secrets.TAURI_UPDATER_PUBKEY }}
+      ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+      ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+      ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+      ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+
+      - name: Initialize git submodules
+        run: git submodule update --init --recursive
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6
+
+      - name: Setup Node
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Setup Java
+        uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654 # v5
+        with:
+          distribution: zulu
+          java-version: '17'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@40fd30fb8d7440372e1316f5d1809ec01dcd3699 # v4
+
+      - name: Install Android NDK
+        run: sdkmanager "ndk;28.2.13676358"
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile --prefer-offline
+
+      - name: Apply release version override
+        if: env.SELFHOST_RELEASE_VERSION != ''
+        run: |
+          set -euo pipefail
+          cd apps/readest-app
+          node - <<'NODE'
+          const fs = require('node:fs');
+          const version = process.env.SELFHOST_RELEASE_VERSION;
+          if (!/^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$/.test(version)) {
+            throw new Error(`Invalid release version: ${version}`);
+          }
+          const path = 'package.json';
+          const pkg = JSON.parse(fs.readFileSync(path, 'utf8'));
+          pkg.version = version;
+          fs.writeFileSync(path, `${JSON.stringify(pkg, null, 2)}\n`);
+          NODE
+
+      - name: Setup app vendors
+        run: pnpm --filter @readest/readest-app setup-vendors
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
+        with:
+          targets: aarch64-linux-android,armv7-linux-androideabi,i686-linux-android,x86_64-linux-android
+
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        with:
+          key: android-selfhost-cargo
+
+      - name: Validate signing secrets
+        run: |
+          set -euo pipefail
+          for name in \
+            TAURI_SIGNING_PRIVATE_KEY \
+            TAURI_SIGNING_PRIVATE_KEY_PASSWORD \
+            TAURI_UPDATER_PUBKEY \
+            ANDROID_KEYSTORE_BASE64 \
+            ANDROID_KEYSTORE_PASSWORD \
+            ANDROID_KEY_ALIAS \
+            ANDROID_KEY_PASSWORD
+          do
+            if [ -z "${!name:-}" ]; then
+              echo "::error::$name secret is required"
+              exit 1
+            fi
+          done
+
+      - name: Build Android split APKs
+        env:
+          NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/28.2.13676358
+        run: |
+          set -euo pipefail
+          cd apps/readest-app
+          rm -rf src-tauri/gen/android
+          pnpm patch-tauri-selfhost
+          pnpm tauri android init
+          pnpm tauri icon ../../data/icons/readest-book.png
+
+          pushd src-tauri/gen/android
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path("app/build.gradle.kts")
+          text = path.read_text()
+
+          def find_block(source: str, marker: str) -> tuple[int, int, int]:
+              start = source.find(marker)
+              if start == -1:
+                  raise SystemExit(f"Expected Gradle block was not found: {marker}")
+              open_brace = source.find("{", start)
+              if open_brace == -1:
+                  raise SystemExit(f"Expected Gradle block opening brace was not found: {marker}")
+              depth = 0
+              for index in range(open_brace, len(source)):
+                  char = source[index]
+                  if char == "{":
+                      depth += 1
+                  elif char == "}":
+                      depth -= 1
+                      if depth == 0:
+                          return start, open_brace, index
+              raise SystemExit(f"Expected Gradle block closing brace was not found: {marker}")
+
+          signing_config = '''
+                  create("selfhostRelease") {
+                      keyAlias = System.getenv("ANDROID_KEY_ALIAS")
+                      keyPassword = System.getenv("ANDROID_KEY_PASSWORD")
+                      storeFile = file(System.getenv("ANDROID_KEYSTORE_PATH") ?: error("ANDROID_KEYSTORE_PATH is required"))
+                      storePassword = System.getenv("ANDROID_KEYSTORE_PASSWORD")
+                  }
+          '''
+          if 'create("selfhostRelease")' not in text:
+              if "    signingConfigs {" in text:
+                  _, open_brace, _ = find_block(text, "    signingConfigs")
+                  text = text[: open_brace + 1] + signing_config + text[open_brace + 1 :]
+              else:
+                  signing_block = f"    signingConfigs {{{signing_config}    }}\n"
+                  build_types_index = text.find("    buildTypes {")
+                  if build_types_index == -1:
+                      raise SystemExit("Expected Android buildTypes block was not found")
+                  text = text[:build_types_index] + signing_block + text[build_types_index:]
+
+          release_assignment = '''
+                      signingConfig = signingConfigs.getByName("selfhostRelease")
+          '''
+          if 'signingConfigs.getByName("selfhostRelease")' not in text:
+              _, _, release_close = find_block(text, 'getByName("release")')
+              text = text[:release_close] + release_assignment + text[release_close:]
+
+          if 'missingDimensionStrategy("store", "foss")' not in text:
+              _, default_config_open, _ = find_block(text, "    defaultConfig")
+              dimension_strategy = '''
+                  missingDimensionStrategy("store", "foss")
+          '''
+              text = text[: default_config_open + 1] + dimension_strategy + text[default_config_open + 1 :]
+
+          path.write_text(text)
+          PY
+          export ANDROID_KEYSTORE_PATH="$RUNNER_TEMP/readest-selfhost-keystore.jks"
+          base64 -d <<< "$ANDROID_KEYSTORE_BASE64" > "$ANDROID_KEYSTORE_PATH"
+          popd
+
+          pnpm tauri android build --split-per-abi --apk
+
+      - name: Collect Android artifacts
+        run: |
+          set -euo pipefail
+          cd apps/readest-app
+          version=$(node -p "require('./package.json').version")
+          mkdir -p dist/selfhost/android
+          declare -A abi_to_asset=(
+            ["arm64-v8a"]="arm64"
+            ["armeabi-v7a"]="armv7"
+            ["x86_64"]="x64"
+            ["x86"]="x86"
+          )
+          declare -A found_assets=()
+          mapfile -t apks < <(find src-tauri/gen/android/app/build/outputs/apk -type f -name '*release*.apk' | sort)
+          if [ "${#apks[@]}" -eq 0 ]; then
+            echo "::error::Android release APKs were not produced"
+            exit 1
+          fi
+          for apk in "${apks[@]}"; do
+            mapfile -t apk_abis < <(unzip -Z1 "$apk" | sed -n 's#^lib/\([^/]*\)/.*#\1#p' | sort -u)
+            if [ "${#apk_abis[@]}" -ne 1 ]; then
+              echo "Skipping non-split APK $apk with ABIs: ${apk_abis[*]:-none}"
+              continue
+            fi
+            abi="${apk_abis[0]}"
+            asset_arch="${abi_to_asset[$abi]:-}"
+            if [ -z "$asset_arch" ]; then
+              echo "Skipping APK $apk with unsupported ABI: $abi"
+              continue
+            fi
+            asset="dist/selfhost/android/Readest-Selfhost_${version}_${asset_arch}.apk"
+            cp "$apk" "$asset"
+            pnpm tauri signer sign "$asset"
+            found_assets["$asset_arch"]=1
+          done
+          for required_asset in arm64 armv7 x64 x86; do
+            if [ -z "${found_assets[$required_asset]:-}" ]; then
+              echo "::error::Android ${required_asset} release APK was not produced"
+              find src-tauri/gen/android/app/build/outputs/apk -type f -name '*.apk' -print
+              exit 1
+            fi
+          done
+
+      - name: Upload Android artifacts
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: selfhost-android-apk
+          path: apps/readest-app/dist/selfhost/android/*
+          if-no-files-found: error
