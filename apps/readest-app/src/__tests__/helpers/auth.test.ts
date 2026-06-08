@@ -4,17 +4,25 @@ import type { User, AuthError } from '@supabase/supabase-js';
 // Mock supabase before importing the module under test
 const mockSetSession = vi.fn();
 const mockGetUser = vi.fn();
+const mockSignOut = vi.fn();
+const mockResetSupabaseClientCache = vi.fn();
 
 vi.mock('@/utils/supabase', () => ({
   supabase: {
     auth: {
       setSession: (...args: unknown[]) => mockSetSession(...args),
       getUser: () => mockGetUser(),
+      signOut: () => mockSignOut(),
     },
   },
+  resetSupabaseClientCache: () => mockResetSupabaseClientCache(),
 }));
 
-import { handleAuthCallback, parseOAuthCallbackUrl } from '@/helpers/auth';
+import {
+  clearAuthSessionForServerChange,
+  handleAuthCallback,
+  parseOAuthCallbackUrl,
+} from '@/helpers/auth';
 
 describe('parseOAuthCallbackUrl', () => {
   it('should extract error params from a failed deeplink callback', () => {
@@ -63,7 +71,6 @@ describe('parseOAuthCallbackUrl', () => {
     expect(params.error).toBeNull();
   });
 });
-
 describe('handleAuthCallback', () => {
   let mockLogin: ReturnType<typeof vi.fn<(accessToken: string, user: User) => void>>;
   let mockNavigate: ReturnType<typeof vi.fn<(path: string) => void>>;
@@ -81,6 +88,9 @@ describe('handleAuthCallback', () => {
     mockNavigate = vi.fn<(path: string) => void>();
     mockSetSession.mockReset();
     mockGetUser.mockReset();
+    mockSignOut.mockReset();
+    mockResetSupabaseClientCache.mockReset();
+    window.localStorage.clear();
     vi.spyOn(console, 'error').mockImplementation(() => {});
   });
 
@@ -284,5 +294,26 @@ describe('handleAuthCallback', () => {
         refresh_token: 'my-refresh-token',
       });
     });
+  });
+
+  it('clears app and Supabase auth storage when changing servers', async () => {
+    mockSignOut.mockResolvedValue(undefined);
+    window.localStorage.setItem('token', 'access-token');
+    window.localStorage.setItem('refresh_token', 'refresh-token');
+    window.localStorage.setItem('user', '{"id":"user-123"}');
+    window.localStorage.setItem('lastRedirectAt', '123');
+    window.localStorage.setItem('sb-readest-auth-token', '{"access_token":"old"}');
+    window.localStorage.setItem('unrelated', 'keep');
+
+    await clearAuthSessionForServerChange();
+
+    expect(mockSignOut).toHaveBeenCalledTimes(1);
+    expect(mockResetSupabaseClientCache).toHaveBeenCalledTimes(1);
+    expect(window.localStorage.getItem('token')).toBeNull();
+    expect(window.localStorage.getItem('refresh_token')).toBeNull();
+    expect(window.localStorage.getItem('user')).toBeNull();
+    expect(window.localStorage.getItem('lastRedirectAt')).toBeNull();
+    expect(window.localStorage.getItem('sb-readest-auth-token')).toBeNull();
+    expect(window.localStorage.getItem('unrelated')).toBe('keep');
   });
 });

@@ -11,6 +11,12 @@ import {
   setCustomServerConfigStorageAdapter,
 } from '@/services/customServerConfig';
 
+const clearAuthSessionForServerChangeMock = vi.fn();
+
+vi.mock('@/helpers/auth', () => ({
+  clearAuthSessionForServerChange: () => clearAuthSessionForServerChangeMock(),
+}));
+
 const makeMemoryStorage = () => {
   const values = new Map<string, string>();
   return {
@@ -40,6 +46,7 @@ const expectConfigError = (fn: () => unknown, code: string) => {
 describe('customServerConfig', () => {
   beforeEach(() => {
     vi.restoreAllMocks();
+    clearAuthSessionForServerChangeMock.mockReset();
     setCustomServerConfigStorageAdapter(null);
   });
 
@@ -205,7 +212,7 @@ describe('customServerConfig', () => {
         now: () => 123,
       });
 
-      saveCustomServerConfig(config);
+      await saveCustomServerConfig(config);
 
       expect(storage.values.has(getCustomServerConfigStorageKey())).toBe(true);
       expect(loadCustomServerConfig()).toEqual({
@@ -216,8 +223,50 @@ describe('customServerConfig', () => {
         fetchedAt: 123,
       });
 
-      clearCustomServerConfig();
+      await clearCustomServerConfig();
       expect(loadCustomServerConfig()).toBeNull();
+    });
+
+    test('resets session when saving a different server with resetSession', async () => {
+      const storage = makeMemoryStorage();
+      setCustomServerConfigStorageAdapter(storage);
+
+      await saveCustomServerConfig({
+        serverBaseUrl: 'https://old.example.com',
+        apiBaseUrl: 'https://old.example.com',
+        supabaseUrl: 'https://old-supabase.example.com',
+        supabaseAnonKey: 'old-anon-key',
+        fetchedAt: 1,
+      });
+
+      await saveCustomServerConfig(
+        {
+          serverBaseUrl: 'https://new.example.com',
+          apiBaseUrl: 'https://new.example.com',
+          supabaseUrl: 'https://new-supabase.example.com',
+          supabaseAnonKey: 'new-anon-key',
+          fetchedAt: 2,
+        },
+        { resetSession: true },
+      );
+
+      expect(clearAuthSessionForServerChangeMock).toHaveBeenCalledTimes(1);
+    });
+
+    test('resets session when clearing an active custom server config', async () => {
+      const storage = makeMemoryStorage();
+      setCustomServerConfigStorageAdapter(storage);
+
+      await saveCustomServerConfig({
+        serverBaseUrl: 'https://readest.example.com',
+        apiBaseUrl: 'https://readest.example.com',
+        fetchedAt: 1,
+      });
+      clearAuthSessionForServerChangeMock.mockClear();
+
+      await clearCustomServerConfig({ resetSession: true });
+
+      expect(clearAuthSessionForServerChangeMock).toHaveBeenCalledTimes(1);
     });
   });
 });
