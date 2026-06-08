@@ -48,7 +48,7 @@ const assertPubkey = (value) => {
   if (!value || value.length < 32) {
     throw new Error('TAURI_UPDATER_PUBKEY must be set to a valid public key');
   }
-  if (/PRIVATE KEY|BEGIN|service_role|secret/i.test(value)) {
+  if (/PRIVATE KEY|BEGIN|secret key/i.test(value)) {
     throw new Error('TAURI_UPDATER_PUBKEY must be public updater key material only');
   }
   return value;
@@ -77,4 +77,3 @@ console.log(
     `updaterEndpoint=${config.plugins.updater.endpoints[0]}`,
   ].join('\n'),
 );
-
