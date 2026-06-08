@@ -227,13 +227,11 @@ jobs:
               raise SystemExit(f"Expected Gradle block closing brace was not found: {marker}")
 
           signing_config = '''
-                  if (keystorePropertiesFile.exists()) {
-                      create("selfhostRelease") {
-                          keyAlias = keystoreProperties["keyAlias"] as String
-                          keyPassword = keystoreProperties["keyPassword"] as String
-                          storeFile = file(keystoreProperties["storeFile"] as String)
-                          storePassword = keystoreProperties["storePassword"] as String
-                      }
+                  create("selfhostRelease") {
+                      keyAlias = System.getenv("ANDROID_KEY_ALIAS")
+                      keyPassword = System.getenv("ANDROID_KEY_PASSWORD")
+                      storeFile = file(System.getenv("ANDROID_KEYSTORE_PATH") ?: error("ANDROID_KEYSTORE_PATH is required"))
+                      storePassword = System.getenv("ANDROID_KEYSTORE_PASSWORD")
                   }
           '''
           if 'create("selfhostRelease")' not in text:
@@ -248,9 +246,7 @@ jobs:
                   text = text[:build_types_index] + signing_block + text[build_types_index:]
 
           release_assignment = '''
-                      if (keystorePropertiesFile.exists()) {
-                          signingConfig = signingConfigs.getByName("selfhostRelease")
-                      }
+                      signingConfig = signingConfigs.getByName("selfhostRelease")
           '''
           if 'signingConfigs.getByName("selfhostRelease")' not in text:
               _, _, release_close = find_block(text, 'getByName("release")')
@@ -258,14 +254,8 @@ jobs:
 
           path.write_text(text)
           PY
-          {
-            printf 'keyAlias=%s\n' "$ANDROID_KEY_ALIAS"
-            printf 'password=%s\n' "$ANDROID_KEYSTORE_PASSWORD"
-            printf 'keyPassword=%s\n' "$ANDROID_KEY_PASSWORD"
-            printf 'storePassword=%s\n' "$ANDROID_KEYSTORE_PASSWORD"
-            printf 'storeFile=%s\n' "$RUNNER_TEMP/readest-selfhost-keystore.jks"
-          } > keystore.properties
-          base64 -d <<< "$ANDROID_KEYSTORE_BASE64" > "$RUNNER_TEMP/readest-selfhost-keystore.jks"
+          export ANDROID_KEYSTORE_PATH="$RUNNER_TEMP/readest-selfhost-keystore.jks"
+          base64 -d <<< "$ANDROID_KEYSTORE_BASE64" > "$ANDROID_KEYSTORE_PATH"
           popd
 
           pnpm tauri android build
