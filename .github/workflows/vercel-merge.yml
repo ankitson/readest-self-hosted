@@ -11,13 +11,30 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+      - name: Check Vercel configuration
+        id: vercel_config
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          ORG_ID: ${{ secrets.ORG_ID }}
+          PROJECT_ID: ${{ secrets.PROJECT_ID }}
+        run: |
+          if [ -n "$VERCEL_TOKEN" ] && [ -n "$ORG_ID" ] && [ -n "$PROJECT_ID" ]; then
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Skip Vercel deploy
+        if: steps.vercel_config.outputs.configured != 'true'
+        run: echo "Skipping Vercel deploy because VERCEL_TOKEN, ORG_ID, or PROJECT_ID is not configured."
+      - if: steps.vercel_config.outputs.configured == 'true'
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
           submodules: 'true'
-      - uses: amondnet/vercel-action@de09aeac2ace6599ec9b11ef87558759a496bac4 # v42
+      - if: steps.vercel_config.outputs.configured == 'true'
+        uses: amondnet/vercel-action@de09aeac2ace6599ec9b11ef87558759a496bac4 # v42
         with:
           vercel-token: ${{ secrets.VERCEL_TOKEN }}
           github-comment: false
           vercel-args: '--prod'
-          vercel-org-id: ${{ secrets.ORG_ID}}
-          vercel-project-id: ${{ secrets.PROJECT_ID}}
+          vercel-org-id: ${{ secrets.ORG_ID }}
+          vercel-project-id: ${{ secrets.PROJECT_ID }}
