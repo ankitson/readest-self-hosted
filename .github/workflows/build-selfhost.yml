@@ -203,18 +203,26 @@ jobs:
 
           pushd src-tauri/gen/android
           python3 - <<'PY'
+          import re
           from pathlib import Path
 
           path = Path("app/build.gradle.kts")
           text = path.read_text()
-          old = 'keyPassword = keystoreProperties["password"] as String\n                storeFile = file(keystoreProperties["storeFile"] as String)\n                storePassword = keystoreProperties["password"] as String'
-          new = 'keyPassword = keystoreProperties["keyPassword"] as String\n                storeFile = file(keystoreProperties["storeFile"] as String)\n                storePassword = keystoreProperties["storePassword"] as String'
-          if old not in text:
-              raise SystemExit("Expected Android signing block was not found")
-          path.write_text(text.replace(old, new))
+          replacements = {
+              r'keyPassword\s*=\s*keystoreProperties(?:\[[^\]]+\]|\.getProperty\([^)]+\))(?:\s+as\s+String)?':
+                  'keyPassword = keystoreProperties["keyPassword"] as String',
+              r'storePassword\s*=\s*keystoreProperties(?:\[[^\]]+\]|\.getProperty\([^)]+\))(?:\s+as\s+String)?':
+                  'storePassword = keystoreProperties["storePassword"] as String',
+          }
+          for pattern, replacement in replacements.items():
+              text, count = re.subn(pattern, replacement, text)
+              if count == 0 and replacement not in text:
+                  raise SystemExit(f"Expected Android signing entry was not found: {replacement}")
+          path.write_text(text)
           PY
           {
             printf 'keyAlias=%s\n' "$ANDROID_KEY_ALIAS"
+            printf 'password=%s\n' "$ANDROID_KEYSTORE_PASSWORD"
             printf 'keyPassword=%s\n' "$ANDROID_KEY_PASSWORD"
             printf 'storePassword=%s\n' "$ANDROID_KEYSTORE_PASSWORD"
             printf 'storeFile=%s\n' "$RUNNER_TEMP/readest-selfhost-keystore.jks"
