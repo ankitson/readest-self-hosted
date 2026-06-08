@@ -4,6 +4,7 @@ import semver from 'semver';
 // ── Mocks for Tauri and internal modules ─────────────────────────
 const mockCheck = vi.fn();
 const mockOsType = vi.fn();
+const mockOsArch = vi.fn(() => 'aarch64');
 const mockTauriFetch = vi.fn();
 
 vi.mock('@tauri-apps/plugin-updater', () => ({
@@ -12,6 +13,7 @@ vi.mock('@tauri-apps/plugin-updater', () => ({
 
 vi.mock('@tauri-apps/plugin-os', () => ({
   type: () => mockOsType(),
+  arch: () => mockOsArch(),
 }));
 
 vi.mock('@tauri-apps/plugin-http', () => ({
@@ -59,12 +61,14 @@ import {
   setLastShownReleaseNotesVersion,
   getLastShownReleaseNotesVersion,
 } from '@/helpers/updater';
+import { getAndroidUpdatePlatform } from '@/helpers/androidUpdatePlatform';
 
 beforeEach(() => {
   vi.clearAllMocks();
   localStorage.clear();
   mockIsTauriAppPlatform = false;
   mockAppVersion = '1.0.0';
+  mockOsArch.mockReturnValue('aarch64');
   MockWebviewWindowLastArgs.length = 0;
   vi.spyOn(console, 'log').mockImplementation(() => {});
   vi.spyOn(console, 'warn').mockImplementation(() => {});
@@ -79,6 +83,28 @@ afterEach(() => {
 const dummyTranslate = (key: string) => key;
 
 describe('updater', () => {
+  describe('Android platform selection', () => {
+    test.each([
+      ['aarch64', 'android-arm64', 'arm64'],
+      ['armv7', 'android-armv7', 'armv7'],
+      ['x86_64', 'android-x86_64', 'x64'],
+      ['i686', 'android-i686', 'x86'],
+    ])('maps %s to %s', (arch, key, assetArch) => {
+      expect(getAndroidUpdatePlatform(arch, { [key]: {} })).toEqual({ key, assetArch });
+    });
+
+    test('falls back to universal when the arch-specific APK is unavailable', () => {
+      expect(getAndroidUpdatePlatform('armv7', { 'android-universal': {} })).toEqual({
+        key: 'android-universal',
+        assetArch: 'universal',
+      });
+    });
+
+    test('returns null when no compatible Android APK exists', () => {
+      expect(getAndroidUpdatePlatform('armv7', { 'windows-x86_64': {} })).toBeNull();
+    });
+  });
+
   // ── setLastShownReleaseNotesVersion / getLastShownReleaseNotesVersion ──
   describe('release notes version tracking', () => {
     test('getLastShownReleaseNotesVersion returns empty string when not set', () => {
@@ -180,6 +206,7 @@ describe('updater', () => {
 
     test('checks Android update via fetch when OS is android', async () => {
       mockOsType.mockReturnValue('android');
+      mockOsArch.mockReturnValue('aarch64');
       mockAppVersion = '1.0.0';
 
       mockTauriFetch.mockResolvedValue({
@@ -198,6 +225,7 @@ describe('updater', () => {
 
     test('Android check with android-universal platform', async () => {
       mockOsType.mockReturnValue('android');
+      mockOsArch.mockReturnValue('armv7');
       mockAppVersion = '1.0.0';
 
       mockTauriFetch.mockResolvedValue({
@@ -214,8 +242,47 @@ describe('updater', () => {
       expect(mockSetUpdaterWindowVisible).toHaveBeenCalled();
     });
 
+    test('Android check with split x86_64 platform', async () => {
+      mockOsType.mockReturnValue('android');
+      mockOsArch.mockReturnValue('x86_64');
+      mockAppVersion = '1.0.0';
+
+      mockTauriFetch.mockResolvedValue({
+        json: () =>
+          Promise.resolve({
+            version: '2.0.0',
+            platforms: { 'android-x86_64': {} },
+          }),
+      });
+
+      const result = await checkForAppUpdates(dummyTranslate, false);
+
+      expect(result).toBe(true);
+      expect(mockSetUpdaterWindowVisible).toHaveBeenCalledWith(true, '2.0.0', '1.0.0');
+    });
+
+    test('Android returns false when no compatible APK exists', async () => {
+      mockOsType.mockReturnValue('android');
+      mockOsArch.mockReturnValue('armv7');
+      mockAppVersion = '1.0.0';
+
+      mockTauriFetch.mockResolvedValue({
+        json: () =>
+          Promise.resolve({
+            version: '2.0.0',
+            platforms: { 'android-arm64': {} },
+          }),
+      });
+
+      const result = await checkForAppUpdates(dummyTranslate, false);
+
+      expect(result).toBe(false);
+      expect(mockSetUpdaterWindowVisible).not.toHaveBeenCalled();
+    });
+
     test('Android returns false when version is not newer', async () => {
       mockOsType.mockReturnValue('android');
+      mockOsArch.mockReturnValue('aarch64');
       mockAppVersion = '2.0.0';
 
       mockTauriFetch.mockResolvedValue({

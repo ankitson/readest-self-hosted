@@ -1,6 +1,6 @@
 import semver from 'semver';
 import { check } from '@tauri-apps/plugin-updater';
-import { type as osType } from '@tauri-apps/plugin-os';
+import { type as osType, arch as osArch } from '@tauri-apps/plugin-os';
 import { fetch } from '@tauri-apps/plugin-http';
 import { WebviewWindow } from '@tauri-apps/api/webviewWindow';
 import { ScrollBarStyle } from '@tauri-apps/api/window';
@@ -13,6 +13,7 @@ import {
   READEST_CHANGELOG_FILE,
   READEST_UPDATER_FILE,
 } from '@/services/constants';
+import { getAndroidUpdatePlatform } from '@/helpers/androidUpdatePlatform';
 
 const LAST_CHECK_KEY = 'lastAppUpdateCheck';
 
@@ -61,10 +62,11 @@ export const checkForAppUpdates = async (
       const response = await fetch(READEST_UPDATER_FILE, { connectTimeout: 5000 });
       const data = await response.json();
       const isNewer = semver.gt(data.version, getAppVersion());
-      if (isNewer && ('android-arm64' in data.platforms || 'android-universal' in data.platforms)) {
+      const platform = getAndroidUpdatePlatform(osArch(), data.platforms);
+      if (isNewer && platform) {
         setUpdaterWindowVisible(true, data.version!, getAppVersion());
       }
-      return isNewer;
+      return isNewer && !!platform;
     } catch (err) {
       console.warn('Failed to fetch Android update info', err);
       throw new Error('Failed to fetch Android update info');

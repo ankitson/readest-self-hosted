@@ -7,6 +7,10 @@ on:
         description: Selfhost release tag to create or update
         required: true
         type: string
+      release_version:
+        description: Version to package, without a leading v. Defaults to the release tag version.
+        required: false
+        type: string
   push:
     tags:
       - 'v*-selfhost'
@@ -19,14 +23,44 @@ env:
   RELEASE_TAG: ${{ github.ref_type == 'tag' && github.ref_name || inputs.tag }}
 
 jobs:
+  release-metadata:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      release_version: ${{ steps.metadata.outputs.release_version }}
+    steps:
+      - name: Resolve release metadata
+        id: metadata
+        env:
+          INPUT_RELEASE_VERSION: ${{ inputs.release_version }}
+        run: |
+          set -euo pipefail
+          release_tag="${RELEASE_TAG}"
+          version="${INPUT_RELEASE_VERSION:-}"
+          if [ -z "$version" ]; then
+            version="${release_tag#selfhost-v}"
+            version="${version%-selfhost}"
+            version="${version#v}"
+          fi
+          if ! [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+([-+][0-9A-Za-z.-]+)?$ ]]; then
+            echo "::error::Unable to resolve a valid release version from ${release_tag}"
+            exit 1
+          fi
+          echo "release_version=$version" >> "$GITHUB_OUTPUT"
+
   build:
     uses: ./.github/workflows/build-selfhost.yml
+    needs: release-metadata
+    with:
+      release_version: ${{ needs.release-metadata.outputs.release_version }}
     secrets: inherit
 
   publish:
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    needs: build
+    needs:
+      - release-metadata
+      - build
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
 
@@ -41,6 +75,8 @@ jobs:
           path: artifacts
 
       - name: Prepare release assets
+        env:
+          SELFHOST_RESOLVED_RELEASE_VERSION: ${{ needs.release-metadata.outputs.release_version }}
         run: |
           set -euo pipefail
           mkdir -p release-assets
@@ -52,9 +88,7 @@ jobs:
 
           const releaseTag = process.env.RELEASE_TAG;
           const repository = process.env.GITHUB_REPOSITORY;
-          const version = JSON.parse(
-            fs.readFileSync('apps/readest-app/package.json', 'utf8'),
-          ).version;
+          const version = process.env.SELFHOST_RESOLVED_RELEASE_VERSION;
           const baseUrl = `https://github.com/${repository}/releases/download/${releaseTag}`;
           const dir = 'release-assets';
           const files = fs.readdirSync(dir);
@@ -68,12 +102,15 @@ jobs:
           };
 
           const windowsAsset = files.find((name) => /_x64-setup\.exe$/i.test(name));
-          const androidAsset = files.find((name) => /_universal\.apk$/i.test(name));
+          const androidPlatforms = [
+            ['android-arm64', /_arm64\.apk$/i],
+            ['android-armv7', /_armv7\.apk$/i],
+            ['android-x86_64', /_x64\.apk$/i],
+            ['android-i686', /_x86\.apk$/i],
+            ['android-universal', /_universal\.apk$/i],
+          ];
           if (!windowsAsset) {
             throw new Error('Missing Windows x64 installer artifact');
-          }
-          if (!androidAsset) {
-            throw new Error('Missing Android APK artifact');
           }
 
           const latest = {
@@ -85,12 +122,22 @@ jobs:
                 signature: readSignature(windowsAsset),
                 url: urlFor(windowsAsset),
               },
-              'android-universal': {
-                signature: readSignature(androidAsset),
-                url: urlFor(androidAsset),
-              },
             },
           };
+
+          for (const [platform, pattern] of androidPlatforms) {
+            const asset = files.find((name) => pattern.test(name));
+            if (asset) {
+              latest.platforms[platform] = {
+                signature: readSignature(asset),
+                url: urlFor(asset),
+              };
+            }
+          }
+
+          if (!Object.keys(latest.platforms).some((platform) => platform.startsWith('android-'))) {
+            throw new Error('Missing Android APK artifact');
+          }
 
           fs.writeFileSync(path.join(dir, 'latest.json'), `${JSON.stringify(latest, null, 2)}\n`);
           NODE
@@ -98,6 +145,7 @@ jobs:
       - name: Create or update GitHub Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SELFHOST_RESOLVED_RELEASE_VERSION: ${{ needs.release-metadata.outputs.release_version }}
         run: |
           set -euo pipefail
           if ! git rev-parse -q --verify "refs/tags/${RELEASE_TAG}" >/dev/null; then
@@ -113,4 +161,10 @@ jobs:
               --title "Readest Selfhost ${RELEASE_TAG}" \
               --notes "Readest Selfhost client release ${RELEASE_TAG}"
           fi
+          for stale_asset in \
+            "Readest-Selfhost_${SELFHOST_RESOLVED_RELEASE_VERSION}_universal.apk" \
+            "Readest-Selfhost_${SELFHOST_RESOLVED_RELEASE_VERSION}_universal.apk.sig"
+          do
+            gh release delete-asset "$RELEASE_TAG" "$stale_asset" --yes >/dev/null 2>&1 || true
+          done
           gh release upload "$RELEASE_TAG" release-assets/* --clobber

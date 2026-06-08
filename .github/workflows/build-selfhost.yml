@@ -2,7 +2,17 @@ name: Build Selfhost
 
 on:
   workflow_dispatch:
+    inputs:
+      release_version:
+        description: Version to package, without a leading v. Defaults to apps/readest-app/package.json.
+        required: false
+        type: string
   workflow_call:
+    inputs:
+      release_version:
+        description: Version to package, without a leading v.
+        required: false
+        type: string
     secrets:
       TAURI_SIGNING_PRIVATE_KEY:
         required: true
@@ -30,6 +40,7 @@ env:
   SELFHOST_PRODUCT_NAME: Readest Selfhost
   SELFHOST_APP_IDENTIFIER: com.readest.selfhost
   TAURI_UPDATER_ENDPOINT: https://github.com/${{ github.repository }}/releases/latest/download/latest.json
+  SELFHOST_RELEASE_VERSION: ${{ inputs.release_version }}
 
 jobs:
   build-windows-x64:
@@ -58,6 +69,24 @@ jobs:
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile --prefer-offline
+
+      - name: Apply release version override
+        if: env.SELFHOST_RELEASE_VERSION != ''
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd apps/readest-app
+          node - <<'NODE'
+          const fs = require('node:fs');
+          const version = process.env.SELFHOST_RELEASE_VERSION;
+          if (!/^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$/.test(version)) {
+            throw new Error(`Invalid release version: ${version}`);
+          }
+          const path = 'package.json';
+          const pkg = JSON.parse(fs.readFileSync(path, 'utf8'));
+          pkg.version = version;
+          fs.writeFileSync(path, `${JSON.stringify(pkg, null, 2)}\n`);
+          NODE
 
       - name: Setup app vendors
         run: pnpm --filter @readest/readest-app setup-vendors
@@ -171,6 +200,23 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile --prefer-offline
 
+      - name: Apply release version override
+        if: env.SELFHOST_RELEASE_VERSION != ''
+        run: |
+          set -euo pipefail
+          cd apps/readest-app
+          node - <<'NODE'
+          const fs = require('node:fs');
+          const version = process.env.SELFHOST_RELEASE_VERSION;
+          if (!/^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$/.test(version)) {
+            throw new Error(`Invalid release version: ${version}`);
+          }
+          const path = 'package.json';
+          const pkg = JSON.parse(fs.readFileSync(path, 'utf8'));
+          pkg.version = version;
+          fs.writeFileSync(path, `${JSON.stringify(pkg, null, 2)}\n`);
+          NODE
+
       - name: Setup app vendors
         run: pnpm --filter @readest/readest-app setup-vendors
 
@@ -201,7 +247,7 @@ jobs:
             fi
           done
 
-      - name: Build Android universal APK
+      - name: Build Android split APKs
         env:
           NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/28.2.13676358
         run: |
@@ -276,7 +322,7 @@ jobs:
           base64 -d <<< "$ANDROID_KEYSTORE_BASE64" > "$ANDROID_KEYSTORE_PATH"
           popd
 
-          pnpm tauri android build
+          pnpm tauri android build --split-per-abi --apk
 
       - name: Collect Android artifacts
         run: |
@@ -284,14 +330,42 @@ jobs:
           cd apps/readest-app
           version=$(node -p "require('./package.json').version")
           mkdir -p dist/selfhost/android
-          apk=$(find src-tauri/gen/android/app/build/outputs/apk -type f -name '*release.apk' | head -n 1)
-          if [ -z "$apk" ]; then
-            echo "::error::Android release APK was not produced"
+          declare -A abi_to_asset=(
+            ["arm64-v8a"]="arm64"
+            ["armeabi-v7a"]="armv7"
+            ["x86_64"]="x64"
+            ["x86"]="x86"
+          )
+          declare -A found_assets=()
+          mapfile -t apks < <(find src-tauri/gen/android/app/build/outputs/apk -type f -name '*release*.apk' | sort)
+          if [ "${#apks[@]}" -eq 0 ]; then
+            echo "::error::Android release APKs were not produced"
             exit 1
           fi
-          asset="dist/selfhost/android/Readest-Selfhost_${version}_universal.apk"
-          cp "$apk" "$asset"
-          pnpm tauri signer sign "$asset"
+          for apk in "${apks[@]}"; do
+            mapfile -t apk_abis < <(unzip -Z1 "$apk" | sed -n 's#^lib/\([^/]*\)/.*#\1#p' | sort -u)
+            if [ "${#apk_abis[@]}" -ne 1 ]; then
+              echo "Skipping non-split APK $apk with ABIs: ${apk_abis[*]:-none}"
+              continue
+            fi
+            abi="${apk_abis[0]}"
+            asset_arch="${abi_to_asset[$abi]:-}"
+            if [ -z "$asset_arch" ]; then
+              echo "Skipping APK $apk with unsupported ABI: $abi"
+              continue
+            fi
+            asset="dist/selfhost/android/Readest-Selfhost_${version}_${asset_arch}.apk"
+            cp "$apk" "$asset"
+            pnpm tauri signer sign "$asset"
+            found_assets["$asset_arch"]=1
+          done
+          for required_asset in arm64 armv7 x64 x86; do
+            if [ -z "${found_assets[$required_asset]:-}" ]; then
+              echo "::error::Android ${required_asset} release APK was not produced"
+              find src-tauri/gen/android/app/build/outputs/apk -type f -name '*.apk' -print
+              exit 1
+            fi
+          done
 
       - name: Upload Android artifacts
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
