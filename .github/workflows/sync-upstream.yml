@@ -21,6 +21,7 @@ jobs:
         with:
           ref: selfhost-main
           fetch-depth: 0
+          submodules: recursive
 
       - name: Configure git
         run: |
