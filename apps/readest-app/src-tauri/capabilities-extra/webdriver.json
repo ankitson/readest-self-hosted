@@ -18,6 +18,8 @@
       "allow": [
         { "path": "**/.readest-test-sandbox-tauri" },
         { "path": "**/.readest-test-sandbox-tauri/**" },
+        { "path": "**/src/__tests__/fixtures/data" },
+        { "path": "**/src/__tests__/fixtures/data/**" },
         { "path": "**/Readest" },
         { "path": "**/Readest/**" }
       ]
