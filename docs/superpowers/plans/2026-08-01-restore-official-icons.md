@@ -155,7 +155,7 @@ Expected: exit 0 with no output.
 - [ ] **Step 6: Verify self-hosted configuration did not change**
 
 ```bash
-git diff --exit-code 2980767e -- \
+git diff --exit-code HEAD -- \
   apps/readest-app/scripts/patch-tauri-selfhost.mjs \
   apps/readest-app/src-tauri/tauri.conf.json \
   apps/readest-app/src/services/customServerConfig.ts \
@@ -186,7 +186,7 @@ Expected: one implementation commit containing only icon assets and icon declara
 
 - Verify: `apps/readest-app/public/manifest.json`
 - Verify: `apps/readest-app/src/app/layout.tsx`
-- Verify: complete implementation diff since `2980767e`
+- Verify: the latest implementation commit only
 - Temporary output only: `/tmp/readest-icon-vitest.log`
 
 **Interfaces:**
@@ -204,7 +204,7 @@ test -z "$(rg -n 'icon-(192|256|512)\.png' \
   apps/readest-app/public/manifest.json \
   apps/readest-app/src/app/layout.tsx || true)"
 
-git diff --check 2980767e..HEAD
+git diff --check HEAD^..HEAD
 ```
 
 Expected: all commands exit 0 and no removed icon filename remains referenced.
@@ -245,7 +245,7 @@ Expected: exactly the pre-existing nested-CBZ test fails; 299 test files pass an
 - [ ] **Step 5: Audit the committed implementation paths**
 
 ```bash
-git diff --name-only 2980767e..HEAD | sort
+git diff-tree --no-commit-id --name-only -r HEAD | sort
 git status --short --branch
 ```
 
@@ -283,8 +283,8 @@ export PLAYWRIGHT_CLI_SESSION=readest-icon-local
 
 "$PWCLI" open http://localhost:3000
 "$PWCLI" snapshot
-"$PWCLI" eval "document.querySelector('link[rel~="'"'icon"'"']')?.getAttribute('href')"
-"$PWCLI" eval "document.querySelector('link[rel="'"'manifest"'"']')?.getAttribute('href')"
+"$PWCLI" eval "document.querySelector('link[rel~=\"icon\"]')?.getAttribute('href')"
+"$PWCLI" eval "document.querySelector('link[rel=\"manifest\"]')?.getAttribute('href')"
 "$PWCLI" eval "async () => { const r = await fetch('/manifest.json'); const m = await r.json(); return { status: r.status, icons: m.icons }; }"
 "$PWCLI" close
 ```
