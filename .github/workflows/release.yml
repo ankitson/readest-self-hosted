@@ -9,6 +9,7 @@ permissions: read-all
 
 jobs:
   get-release:
+    if: github.repository == 'readest/readest'
     permissions:
       contents: read
     runs-on: ubuntu-latest

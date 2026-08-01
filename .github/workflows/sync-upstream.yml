@@ -1,4 +1,4 @@
-name: Sync Upstream Selfhost
+name: Sync Stable Upstream Selfhost
 
 on:
   workflow_dispatch:
@@ -9,69 +9,201 @@ permissions:
   contents: write
 
 concurrency:
-  group: sync-upstream-selfhost
+  group: sync-stable-upstream-selfhost
   cancel-in-progress: false
 
 jobs:
-  rebase-selfhost-main:
+  sync-stable-selfhost:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 120
+    env:
+      NODE_OPTIONS: --max-old-space-size=4096
     steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           ref: selfhost-main
           fetch-depth: 0
-          submodules: recursive
+          submodules: false
 
       - name: Configure git
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-      - name: Rebase on upstream main
+      - name: Resolve stable upstream candidate
+        id: stable
         run: |
           set -euo pipefail
+
           git remote add upstream https://github.com/readest/readest.git
-          git fetch --no-recurse-submodules upstream main --tags
-          git checkout selfhost-main
-          git rebase upstream/main
+          git fetch --no-tags upstream main:refs/remotes/upstream/main
+          git fetch --no-recurse-submodules upstream '+refs/tags/v*:refs/tags/upstream/v*'
+          git fetch --no-tags origin main selfhost-main
+          git fetch --no-recurse-submodules origin '+refs/tags/selfhost-v*:refs/tags/origin/selfhost-v*'
+
+          expected_main="$(git rev-parse refs/remotes/origin/main)"
+          expected_selfhost="$(git rev-parse refs/remotes/origin/selfhost-main)"
+          latest_tag="$(
+            git for-each-ref --format='%(refname:strip=3)' refs/tags/upstream |
+              bash scripts/select-latest-stable-tag.sh
+          )"
+          target_ref="refs/tags/upstream/${latest_tag}"
+          target_commit="$(git rev-parse "${target_ref}^{commit}")"
+
+          if ! git merge-base --is-ancestor "$target_commit" refs/remotes/upstream/main; then
+            echo "::error::${latest_tag} is not reachable from upstream/main"
+            exit 1
+          fi
+
+          git checkout -B sync-candidate refs/remotes/origin/selfhost-main
+          branch_required=false
+          if ! git merge-base --is-ancestor "$target_commit" HEAD; then
+            current_tag="$(
+              while IFS= read -r tag; do
+                if git merge-base --is-ancestor "refs/tags/upstream/${tag}^{commit}" HEAD; then
+                  printf '%s\n' "$tag"
+                fi
+              done < <(git for-each-ref --format='%(refname:strip=3)' refs/tags/upstream) |
+                bash scripts/select-latest-stable-tag.sh
+            )"
+            current_commit="$(git rev-parse "refs/tags/upstream/${current_tag}^{commit}")"
+            echo "Rebasing selfhost commits from ${current_tag} onto ${latest_tag}."
+            git rebase --onto "$target_commit" "$current_commit"
+            branch_required=true
+          fi
+
+          selfhost_ref="refs/tags/origin/selfhost-${latest_tag}"
+          tag_required=true
+          if git show-ref --verify --quiet "$selfhost_ref"; then
+            existing_tag_commit="$(git rev-parse "${selfhost_ref}^{commit}")"
+            if [ "$existing_tag_commit" != "$(git rev-parse HEAD)" ]; then
+              echo "::error::selfhost-${latest_tag} already exists at another commit and will not be moved"
+              exit 1
+            fi
+            tag_required=false
+          fi
+
+          {
+            echo "latest_tag=$latest_tag"
+            echo "release_version=${latest_tag#v}"
+            echo "expected_main=$expected_main"
+            echo "expected_selfhost=$expected_selfhost"
+            echo "branch_required=$branch_required"
+            echo "tag_required=$tag_required"
+          } >> "$GITHUB_OUTPUT"
+
+          if [ "$branch_required" = false ] && [ "$tag_required" = false ]; then
+            echo "${latest_tag} is already synchronized and released."
+          fi
 
       - name: Update submodules
+        if: steps.stable.outputs.branch_required == 'true' || steps.stable.outputs.tag_required == 'true'
         run: |
           git submodule sync --recursive
           git submodule update --init --recursive
 
       - name: Setup pnpm
+        if: steps.stable.outputs.branch_required == 'true' || steps.stable.outputs.tag_required == 'true'
         uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6
 
       - name: Setup Node
-        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
+        if: steps.stable.outputs.branch_required == 'true' || steps.stable.outputs.tag_required == 'true'
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v6
         with:
           node-version: 24
           cache: pnpm
 
+      - name: Install Rust checks
+        if: steps.stable.outputs.branch_required == 'true' || steps.stable.outputs.tag_required == 'true'
+        uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1
+        with:
+          toolchain: stable
+          override: true
+          components: rustfmt, clippy
+
+      - name: Install system dependencies
+        if: steps.stable.outputs.branch_required == 'true' || steps.stable.outputs.tag_required == 'true'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            luajit \
+            pkg-config \
+            libfontconfig-dev \
+            libglib2.0-dev \
+            libgtk-3-dev \
+            libwebkit2gtk-4.1-dev \
+            libappindicator3-dev \
+            librsvg2-dev \
+            libsoup-3.0-dev
+
       - name: Install dependencies
+        if: steps.stable.outputs.branch_required == 'true' || steps.stable.outputs.tag_required == 'true'
         run: pnpm install --frozen-lockfile --prefer-offline
 
       - name: Setup app vendors
+        if: steps.stable.outputs.branch_required == 'true' || steps.stable.outputs.tag_required == 'true'
         run: pnpm --filter @readest/readest-app setup-vendors
 
-      - name: Typecheck selfhost client
+      - name: Test selfhost configuration
+        if: steps.stable.outputs.branch_required == 'true' || steps.stable.outputs.tag_required == 'true'
         run: |
-          cd apps/readest-app
-          pnpm exec tsgo --noEmit
-
-      - name: Test selfhost client config
-        run: |
-          cd apps/readest-app
-          pnpm exec vitest run \
+          pnpm --filter @readest/readest-app test --run \
             src/__tests__/services/customServerConfig.test.ts \
             src/__tests__/services/environment.test.ts \
+            src/__tests__/services/selfhostUpdaterConfig.test.ts \
             src/__tests__/helpers/auth.test.ts \
+            src/__tests__/helpers/updater.test.ts \
             src/__tests__/services/command-registry-extended.test.ts
 
-      - name: Run public fork safety scan
-        run: bash scripts/scan-public-fork-safety.sh
+      - name: Run selfhost policy checks
+        if: steps.stable.outputs.branch_required == 'true' || steps.stable.outputs.tag_required == 'true'
+        run: |
+          bash scripts/test-select-latest-stable-tag.sh
+          bash scripts/test-sync-upstream-workflow.sh
+          bash scripts/scan-public-fork-safety.sh
 
-      - name: Push rebased branch
-        run: git push origin HEAD:selfhost-main
+      - name: Run TypeScript and formatting checks
+        if: steps.stable.outputs.branch_required == 'true' || steps.stable.outputs.tag_required == 'true'
+        run: |
+          pnpm format:check
+          pnpm lint
+
+      - name: Run full unit suite
+        if: steps.stable.outputs.branch_required == 'true' || steps.stable.outputs.tag_required == 'true'
+        run: pnpm --filter @readest/readest-app test --run
+
+      - name: Run Rust checks
+        if: steps.stable.outputs.branch_required == 'true' || steps.stable.outputs.tag_required == 'true'
+        run: |
+          pnpm fmt:check
+          pnpm clippy:check
+
+      - name: Build production Web app
+        if: steps.stable.outputs.branch_required == 'true' || steps.stable.outputs.tag_required == 'true'
+        run: pnpm --filter @readest/readest-app build-web
+
+      - name: Publish synchronized stable release
+        if: steps.stable.outputs.branch_required == 'true' || steps.stable.outputs.tag_required == 'true'
+        env:
+          latest_tag: ${{ steps.stable.outputs.latest_tag }}
+          expected_main: ${{ steps.stable.outputs.expected_main }}
+          expected_selfhost: ${{ steps.stable.outputs.expected_selfhost }}
+          branch_required: ${{ steps.stable.outputs.branch_required }}
+          tag_required: ${{ steps.stable.outputs.tag_required }}
+        run: |
+          set -euo pipefail
+          if [ "$branch_required" = true ]; then
+            refspecs=(
+              HEAD:refs/heads/main
+              HEAD:refs/heads/selfhost-main
+            )
+            if [ "$tag_required" = true ]; then
+              refspecs+=("HEAD:refs/tags/selfhost-$latest_tag")
+            fi
+            git push --atomic origin \
+              "--force-with-lease=refs/heads/main:${expected_main}" \
+              "--force-with-lease=refs/heads/selfhost-main:${expected_selfhost}" \
+              "${refspecs[@]}"
+          elif [ "$tag_required" = true ]; then
+            git push origin "HEAD:refs/tags/selfhost-$latest_tag"
+          fi

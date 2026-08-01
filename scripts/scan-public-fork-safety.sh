@@ -62,6 +62,8 @@ for path in tracked_files:
 selfhost_paths = [
     "apps/readest-app/src/services/customServerConfig.ts",
     "apps/readest-app/src/__tests__/services/customServerConfig.test.ts",
+    "apps/readest-app/src/__tests__/services/selfhostUpdaterConfig.test.ts",
+    "apps/readest-app/src/services/constants.ts",
     "apps/readest-app/src-tauri/tauri.conf.json",
     "apps/readest-app/scripts/patch-tauri-selfhost.mjs",
     "docs/selfhost-client.md",
@@ -83,6 +85,16 @@ for path in selfhost_paths:
         if pattern in text:
             fail(f"official updater endpoint found in {path}: {pattern}")
 
+selfhost_updater_file = (
+    "https://github.com/luoji12103/readest-self-hosted/"
+    "releases/latest/download/latest.json"
+)
+constants_text = read_text("apps/readest-app/src/services/constants.ts")
+if selfhost_updater_file not in constants_text:
+    fail("TypeScript updater configuration does not point to the selfhost release manifest")
+if "READEST_NIGHTLY_UPDATER_FILE = READEST_UPDATER_FILE" not in constants_text:
+    fail("selfhost nightly-channel checks are not constrained to the fork release manifest")
+
 tauri_config_path = ROOT / "apps/readest-app/src-tauri/tauri.conf.json"
 if tauri_config_path.exists():
     config = json.loads(tauri_config_path.read_text(encoding="utf-8"))
@@ -95,6 +107,32 @@ if tauri_config_path.exists():
     for endpoint in endpoints:
         if "github.com/readest/readest/" in endpoint or "download.readest.com/releases" in endpoint:
             fail(f"Tauri updater endpoint points to official Readest: {endpoint}")
+
+sync_workflow = read_text(".github/workflows/sync-upstream.yml")
+required_sync_markers = (
+    "refs/tags/upstream/v*",
+    "scripts/select-latest-stable-tag.sh",
+    "git merge-base --is-ancestor",
+    "git rebase --onto",
+    "--atomic",
+    "--force-with-lease=refs/heads/main:",
+    "--force-with-lease=refs/heads/selfhost-main:",
+    "HEAD:refs/tags/selfhost-$latest_tag",
+)
+for marker in required_sync_markers:
+    if marker not in sync_workflow:
+        fail(f"stable sync workflow is missing required policy marker: {marker}")
+if "git rebase upstream/main" in sync_workflow:
+    fail("stable sync workflow still rebases directly onto upstream/main")
+
+build_workflow = read_text(".github/workflows/build-selfhost.yml")
+if re.search(r"(?m)^  push:\s*$", build_workflow):
+    fail("build-selfhost must not run independently for selfhost tag pushes")
+
+official_release = read_text(".github/workflows/release.yml")
+get_release_block = official_release.split("  update-release:", 1)[0]
+if "if: github.repository == 'readest/readest'" not in get_release_block:
+    fail("official Readest release workflow is not guarded from running in the fork")
 
 url_scan_paths = [
     "apps/readest-app/src/services/customServerConfig.ts",

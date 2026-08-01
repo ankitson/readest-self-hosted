@@ -28,11 +28,6 @@ on:
         required: true
       ANDROID_KEY_PASSWORD:
         required: true
-  push:
-    tags:
-      - 'v*-selfhost'
-      - 'selfhost-v*'
-
 permissions:
   contents: read
 
