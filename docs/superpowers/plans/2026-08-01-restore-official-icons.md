@@ -204,7 +204,8 @@ test -z "$(rg -n 'icon-(192|256|512)\.png' \
   apps/readest-app/public/manifest.json \
   apps/readest-app/src/app/layout.tsx || true)"
 
-git diff --check HEAD^..HEAD
+icon_commit="$(git rev-parse ':/^fix: restore official Readest icons$')"
+git diff --check "$icon_commit^..$icon_commit"
 ```
 
 Expected: all commands exit 0 and no removed icon filename remains referenced.
@@ -220,7 +221,7 @@ Expected: TypeScript, Biome, and LuaJIT checks exit 0.
 - [ ] **Step 3: Run a production Web build**
 
 ```bash
-pnpm build-web
+pnpm --filter @readest/readest-app build-web
 ```
 
 Expected: Next.js production build exits 0.
@@ -245,7 +246,8 @@ Expected: exactly the pre-existing nested-CBZ test fails; 299 test files pass an
 - [ ] **Step 5: Audit the committed implementation paths**
 
 ```bash
-git diff-tree --no-commit-id --name-only -r HEAD | sort
+icon_commit="$(git rev-parse ':/^fix: restore official Readest icons$')"
+git diff-tree --no-commit-id --name-only -r "$icon_commit" | sort
 git status --short --branch
 ```
 
