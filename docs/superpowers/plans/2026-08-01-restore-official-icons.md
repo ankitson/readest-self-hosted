@@ -221,7 +221,7 @@ Expected: TypeScript, Biome, and LuaJIT checks exit 0.
 - [ ] **Step 3: Run a production Web build**
 
 ```bash
-pnpm --filter @readest/readest-app build-web
+NODE_OPTIONS=--max-old-space-size=4096 pnpm --filter @readest/readest-app build-web
 ```
 
 Expected: Next.js production build exits 0.
