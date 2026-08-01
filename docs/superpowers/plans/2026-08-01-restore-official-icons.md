@@ -230,7 +230,7 @@ Expected: Next.js production build exits 0.
 
 ```bash
 set +e
-pnpm --filter @readest/readest-app exec vitest run 2>&1 | tee /tmp/readest-icon-vitest.log
+pnpm --filter @readest/readest-app test --run 2>&1 | tee /tmp/readest-icon-vitest.log
 status=${PIPESTATUS[0]}
 set -e
 
