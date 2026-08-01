@@ -19,6 +19,7 @@ permissions:
 
 jobs:
   upload-to-r2:
+    if: github.repository == 'readest/readest'
     runs-on: ubuntu-latest
     permissions:
       contents: read

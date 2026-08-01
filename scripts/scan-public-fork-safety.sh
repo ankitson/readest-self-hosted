@@ -66,6 +66,7 @@ selfhost_paths = [
     "apps/readest-app/src/services/constants.ts",
     "apps/readest-app/src-tauri/tauri.conf.json",
     "apps/readest-app/scripts/patch-tauri-selfhost.mjs",
+    "apps/readest.koplugin/readest_selfupdate.lua",
     "docs/selfhost-client.md",
     ".github/workflows/build-selfhost.yml",
     ".github/workflows/release-selfhost.yml",
@@ -95,6 +96,16 @@ if selfhost_updater_file not in constants_text:
 if "READEST_NIGHTLY_UPDATER_FILE = READEST_UPDATER_FILE" not in constants_text:
     fail("selfhost nightly-channel checks are not constrained to the fork release manifest")
 
+koplugin_updater = read_text("apps/readest.koplugin/readest_selfupdate.lua")
+for official_release_host in (
+    "https://download.readest.com/releases",
+    "https://github.com/readest/readest/releases",
+):
+    if official_release_host in koplugin_updater:
+        fail(f"KOReader self-update still points to official Readest: {official_release_host}")
+if "local SelfUpdate = { enabled = false }" not in koplugin_updater:
+    fail("KOReader self-update is not explicitly disabled in the selfhost fork")
+
 tauri_config_path = ROOT / "apps/readest-app/src-tauri/tauri.conf.json"
 if tauri_config_path.exists():
     config = json.loads(tauri_config_path.read_text(encoding="utf-8"))
@@ -121,6 +132,8 @@ required_sync_markers = (
     "actions: write",
     "gh workflow run release-selfhost.yml",
     'git merge-base --is-ancestor "$existing_tag_commit" HEAD',
+    "luarocks --lua-version=5.1 install busted",
+    "pnpm --filter @readest/readest-app test:lua",
 )
 for marker in required_sync_markers:
     if marker not in sync_workflow:
@@ -136,6 +149,23 @@ official_release = read_text(".github/workflows/release.yml")
 get_release_block = official_release.split("  update-release:", 1)[0]
 if "if: github.repository == 'readest/readest'" not in get_release_block:
     fail("official Readest release workflow is not guarded from running in the fork")
+
+nightly_workflow = read_text(".github/workflows/nightly.yml")
+for job_name in ("compute-version", "build", "assemble-manifest"):
+    match = re.search(
+        rf"(?ms)^  {re.escape(job_name)}:\n(.*?)(?=^  [a-zA-Z0-9_-]+:\n|\Z)",
+        nightly_workflow,
+    )
+    if not match or "github.repository == 'readest/readest'" not in match.group(1):
+        fail(f"official nightly job is not guarded in the fork: {job_name}")
+
+upload_r2_workflow = read_text(".github/workflows/upload-to-r2.yml")
+upload_r2_match = re.search(
+    r"(?ms)^  upload-to-r2:\n(.*?)(?=^  [a-zA-Z0-9_-]+:\n|\Z)",
+    upload_r2_workflow,
+)
+if not upload_r2_match or "if: github.repository == 'readest/readest'" not in upload_r2_match.group(1):
+    fail("official R2 release upload job is not guarded in the fork")
 
 url_scan_paths = [
     "apps/readest-app/src/services/customServerConfig.ts",

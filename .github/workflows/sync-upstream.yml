@@ -132,6 +132,8 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y \
             luajit \
+            luarocks \
+            libsqlite3-dev \
             pkg-config \
             libfontconfig-dev \
             libglib2.0-dev \
@@ -140,6 +142,12 @@ jobs:
             libappindicator3-dev \
             librsvg2-dev \
             libsoup-3.0-dev
+
+      - name: Install KOReader test dependencies
+        if: steps.stable.outputs.branch_required == 'true' || steps.stable.outputs.tag_required == 'true'
+        run: |
+          sudo luarocks --lua-version=5.1 install busted
+          sudo luarocks --lua-version=5.1 install lsqlite3complete
 
       - name: Install dependencies
         if: steps.stable.outputs.branch_required == 'true' || steps.stable.outputs.tag_required == 'true'
@@ -166,6 +174,10 @@ jobs:
           bash scripts/test-select-latest-stable-tag.sh
           bash scripts/test-sync-upstream-workflow.sh
           bash scripts/scan-public-fork-safety.sh
+
+      - name: Test KOReader plugin
+        if: steps.stable.outputs.branch_required == 'true' || steps.stable.outputs.tag_required == 'true'
+        run: pnpm --filter @readest/readest-app test:lua
 
       - name: Run TypeScript and formatting checks
         if: steps.stable.outputs.branch_required == 'true' || steps.stable.outputs.tag_required == 'true'

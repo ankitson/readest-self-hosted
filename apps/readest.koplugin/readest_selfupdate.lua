@@ -6,16 +6,14 @@ local logger = require("logger")
 local T = require("ffi/util").template
 local _ = require("readest_i18n")
 
-local SelfUpdate = {}
+local SelfUpdate = { enabled = false }
 
-local UPDATE_URLS = {
-    "https://download.readest.com/releases/latest.json",
-    "https://github.com/readest/readest/releases/latest/download/latest.json",
-}
-local DOWNLOAD_URLS = {
-    "https://download.readest.com/releases/%s/Readest-%s-1.koplugin.zip",
-    "https://github.com/readest/readest/releases/download/%s/Readest-%s-1.koplugin.zip",
-}
+local UPDATE_URLS = {}
+local DOWNLOAD_URLS = {}
+
+function SelfUpdate:isEnabled()
+    return self.enabled
+end
 
 function SelfUpdate:compareVersions(v1, v2)
     local function parse(v)
@@ -36,6 +34,8 @@ function SelfUpdate:compareVersions(v1, v2)
 end
 
 function SelfUpdate:fetchLatestVersion()
+    if not self:isEnabled() then return nil end
+
     local http = require("socket.http")
     local ltn12 = require("ltn12")
     local socket = require("socket")
@@ -63,6 +63,8 @@ function SelfUpdate:fetchLatestVersion()
 end
 
 function SelfUpdate:checkForUpdate(plugin_path, installed_version)
+    if not self:isEnabled() then return false end
+
     local ConfirmBox = require("ui/widget/confirmbox")
 
     if NetworkMgr:willRerunWhenOnline(function() self:checkForUpdate(plugin_path, installed_version) end) then
@@ -105,6 +107,8 @@ function SelfUpdate:checkForUpdate(plugin_path, installed_version)
 end
 
 function SelfUpdate:downloadAndInstall(plugin_path, version)
+    if not self:isEnabled() then return false end
+
     local ConfirmBox = require("ui/widget/confirmbox")
     local DataStorage = require("datastorage")
     local http = require("socket.http")

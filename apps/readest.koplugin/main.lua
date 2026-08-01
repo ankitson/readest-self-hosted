@@ -592,6 +592,9 @@ function ReadestSync:addToMainMenu(menu_items)
                 separator = true,
             },
             {
+                enabled_func = function()
+                    return SelfUpdate:isEnabled()
+                end,
                 text_func = function()
                     if self.installed_version then
                         return T(_("Check for update (v%1)"), self.installed_version)
