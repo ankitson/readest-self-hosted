@@ -867,19 +867,20 @@ export const SHARE_TOKEN_LENGTH = 22;
 export const SHARE_PRESIGN_TTL_SECONDS = 300;
 export const SHARE_CFI_MAX_LENGTH = 512;
 
-const LATEST_DOWNLOAD_BASE_URL = 'https://download.readest.com/releases';
+export const READEST_UPDATER_FILE =
+  'https://github.com/luoji12103/readest-self-hosted/releases/latest/download/latest.json';
 
-export const READEST_UPDATER_FILE = `${LATEST_DOWNLOAD_BASE_URL}/latest.json`;
+export const READEST_CHANGELOG_FILE = 'https://download.readest.com/releases/release-notes.json';
 
-export const READEST_CHANGELOG_FILE = `${LATEST_DOWNLOAD_BASE_URL}/release-notes.json`;
-
-export const READEST_NIGHTLY_UPDATER_FILE = 'https://download.readest.com/nightly/latest.json';
+// Selfhost releases follow stable upstream tags only. Keep the upstream nightly
+// channel UI compatible while resolving it through the fork-owned stable manifest.
+export const READEST_NIGHTLY_UPDATER_FILE = READEST_UPDATER_FILE;
 
 // Public (verification) key, identical to src-tauri/tauri.conf.json `updater.pubkey`.
 // Used to verify nightly artifacts in the custom install flows (portable /
 // AppImage / Android). Safe to embed — it is a public key.
 export const READEST_UPDATER_PUBKEY =
-  'dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEJFMEQ1QjE2OEU1NEIzNTEKUldSUnMxU09GbHNOdmpEaWFMT1crRFpEV2VORzQ2MklxaFc0M1R0ci9xY2c1bENXS0xhM1R1L2sK';
+  'dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IERDMTFCNEI4QTZDQUI5MkEKUldRcXVjcW11TFFSM0JBMkhWcGV0aW8yUlNneERzNnJtaUZjY3ViYmtyYWZwaEx4UzBEdi9WM3kK';
 
 export const READEST_PUBLIC_STORAGE_BASE_URL = 'https://storage.readest.com';
 
