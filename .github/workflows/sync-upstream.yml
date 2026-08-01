@@ -6,6 +6,7 @@ on:
     - cron: '37 3 * * *'
 
 permissions:
+  actions: write
   contents: write
 
 concurrency:
@@ -76,8 +77,12 @@ jobs:
           tag_required=true
           if git show-ref --verify --quiet "$selfhost_ref"; then
             existing_tag_commit="$(git rev-parse "${selfhost_ref}^{commit}")"
-            if [ "$existing_tag_commit" != "$(git rev-parse HEAD)" ]; then
-              echo "::error::selfhost-${latest_tag} already exists at another commit and will not be moved"
+            if ! git merge-base --is-ancestor "$target_commit" "$existing_tag_commit"; then
+              echo "::error::selfhost-${latest_tag} does not contain the matching upstream stable commit"
+              exit 1
+            fi
+            if ! git merge-base --is-ancestor "$existing_tag_commit" HEAD; then
+              echo "::error::selfhost-${latest_tag} is not in the current selfhost branch history"
               exit 1
             fi
             tag_required=false
@@ -207,3 +212,18 @@ jobs:
           elif [ "$tag_required" = true ]; then
             git push origin "HEAD:refs/tags/selfhost-$latest_tag"
           fi
+
+      # GitHub suppresses push-triggered workflows for refs created with
+      # GITHUB_TOKEN. Explicit workflow_dispatch is the supported exception.
+      - name: Dispatch selfhost release
+        if: steps.stable.outputs.tag_required == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          latest_tag: ${{ steps.stable.outputs.latest_tag }}
+          release_version: ${{ steps.stable.outputs.release_version }}
+        run: |
+          gh workflow run release-selfhost.yml \
+            --repo "$GITHUB_REPOSITORY" \
+            --ref "selfhost-$latest_tag" \
+            -f "tag=selfhost-$latest_tag" \
+            -f "release_version=$release_version"

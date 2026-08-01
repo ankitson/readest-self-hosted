@@ -118,6 +118,9 @@ required_sync_markers = (
     "--force-with-lease=refs/heads/main:",
     "--force-with-lease=refs/heads/selfhost-main:",
     "HEAD:refs/tags/selfhost-$latest_tag",
+    "actions: write",
+    "gh workflow run release-selfhost.yml",
+    'git merge-base --is-ancestor "$existing_tag_commit" HEAD',
 )
 for marker in required_sync_markers:
     if marker not in sync_workflow:
