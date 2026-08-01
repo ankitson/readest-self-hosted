@@ -305,7 +305,7 @@ export PLAYWRIGHT_CLI_SESSION=readest-live-smoke
 "$PWCLI" snapshot
 "$PWCLI" eval "({ title: document.title, url: location.origin, ready: document.readyState })"
 "$PWCLI" console error
-"$PWCLI" network
+"$PWCLI" requests
 ```
 
 Expected: the live app reaches `readyState=complete`, renders the Readest authentication or library surface, and has no icon-related request failure. If authentication is required for the requested library flow, accept credentials interactively at execution time only and never save storage state.
