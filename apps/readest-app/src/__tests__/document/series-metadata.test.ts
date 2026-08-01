@@ -48,7 +48,7 @@ const makeCbzFixture = async ({
   const blob = await writer.close();
   // zip.js can produce a Blob from a different realm under jsdom. Normalize
   // foreign Blob objects so File() does not stringify them to "[object Blob]".
-  const content: BlobPart = blob instanceof Blob ? blob : await blob.arrayBuffer();
+  const content: BlobPart = await blob.arrayBuffer();
   return new File([content], 'page-count.cbz', { type: 'application/vnd.comicbook+zip' });
 };
 

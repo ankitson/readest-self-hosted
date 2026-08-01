@@ -943,7 +943,11 @@ export class TxtToEpubConverter {
     // jsdom and embedded WebViews). File() stringifies a cross-realm Blob to
     // "[object Blob]", producing a corrupt 13-byte EPUB. Preserve the zero-copy
     // browser path and normalize only foreign Blob instances through bytes.
-    const content: BlobPart = blob instanceof Blob ? blob : await blob.arrayBuffer();
+    const blobValue: unknown = blob;
+    const content: BlobPart =
+      blobValue instanceof Blob
+        ? blobValue
+        : await (blobValue as { arrayBuffer(): Promise<ArrayBuffer> }).arrayBuffer();
     return new File([content], fileName, { type: 'application/epub+zip' });
   }
 
