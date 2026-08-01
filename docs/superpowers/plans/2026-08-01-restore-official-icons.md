@@ -204,7 +204,8 @@ test -z "$(rg -n 'icon-(192|256|512)\.png' \
   apps/readest-app/public/manifest.json \
   apps/readest-app/src/app/layout.tsx || true)"
 
-icon_commit="$(git rev-parse ':/^fix: restore official Readest icons$')"
+icon_commit="$(git log -1 --format=%H --grep='^fix: restore official Readest icons$')"
+test -n "$icon_commit"
 git diff --check "$icon_commit^..$icon_commit"
 ```
 
@@ -246,7 +247,8 @@ Expected: exactly the pre-existing nested-CBZ test fails; 299 test files pass an
 - [ ] **Step 5: Audit the committed implementation paths**
 
 ```bash
-icon_commit="$(git rev-parse ':/^fix: restore official Readest icons$')"
+icon_commit="$(git log -1 --format=%H --grep='^fix: restore official Readest icons$')"
+test -n "$icon_commit"
 git diff-tree --no-commit-id --name-only -r "$icon_commit" | sort
 git status --short --branch
 ```
