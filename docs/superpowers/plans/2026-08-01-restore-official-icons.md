@@ -285,7 +285,7 @@ export CODEX_HOME="${CODEX_HOME:-$HOME/.codex}"
 export PWCLI="$CODEX_HOME/skills/playwright/scripts/playwright_cli.sh"
 export PLAYWRIGHT_CLI_SESSION=readest-icon-local
 
-"$PWCLI" open http://localhost:3000
+"$PWCLI" open http://localhost:3000 --browser firefox
 "$PWCLI" snapshot
 "$PWCLI" eval "document.querySelector('link[rel~=\"icon\"]')?.getAttribute('href')"
 "$PWCLI" eval "document.querySelector('link[rel=\"manifest\"]')?.getAttribute('href')"
@@ -301,7 +301,7 @@ Set `READEST_E2E_BASE_URL` in the active shell from the operator-provided value.
 
 ```bash
 export PLAYWRIGHT_CLI_SESSION=readest-live-smoke
-"$PWCLI" open "$READEST_E2E_BASE_URL"
+"$PWCLI" open "$READEST_E2E_BASE_URL" --browser firefox
 "$PWCLI" snapshot
 "$PWCLI" eval "({ title: document.title, url: location.origin, ready: document.readyState })"
 "$PWCLI" console error
