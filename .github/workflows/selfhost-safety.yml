@@ -20,6 +20,10 @@ jobs:
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - name: Install workflow test dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ripgrep
       - name: Test stable release synchronization policy
         run: |
           bash scripts/test-select-latest-stable-tag.sh

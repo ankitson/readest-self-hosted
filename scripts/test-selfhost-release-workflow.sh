@@ -163,6 +163,7 @@ if rg -Fq -- 'const androidPlatforms' "$release"; then
   exit 1
 fi
 
+require_marker "$safety" 'sudo apt-get install -y ripgrep'
 require_marker "$safety" 'bash scripts/test-prepare-selfhost-release.sh'
 require_marker "$safety" 'bash scripts/test-selfhost-release-workflow.sh'
 
