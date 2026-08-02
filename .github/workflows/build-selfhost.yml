@@ -808,10 +808,11 @@ jobs:
             certificate_digest=$(
               sed -n 's/^Signer #1 certificate SHA-256 digest: //p' <<< "$verification" |
                 head -n 1 |
+                tr -d '[:space:]:' |
                 tr 'A-F' 'a-f'
             )
             if [ "$certificate_digest" != "$SELFHOST_ANDROID_CERT_SHA256" ]; then
-              echo "::error::Unexpected Android signing certificate for ${apk}"
+              echo "::error::Unexpected Android signing certificate for ${apk}: got ${certificate_digest:-missing}, expected ${SELFHOST_ANDROID_CERT_SHA256}"
               exit 1
             fi
 

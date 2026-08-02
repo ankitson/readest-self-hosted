@@ -44,10 +44,12 @@ for marker in \
   '--key-pass env:ANDROID_KEY_PASSWORD' \
   '--v4-signing-enabled false' \
   'apksigner verify --verbose --print-certs' \
+  "tr -d '[:space:]:'" \
   'keytool -exportcert' \
   'aapt dump badging' \
   'SELFHOST_ANDROID_CERT_SHA256: 903bf29bdf76ec24766e48eb8eafc0f0d228572be347008956b3f6aa63d753be' \
   'Android keystore certificate does not match the pinned selfhost certificate' \
+  'got ${certificate_digest:-missing}, expected ${SELFHOST_ANDROID_CERT_SHA256}' \
   'Unexpected Android universal ABI set' \
   'Unexpected Android package identifier' \
   'Unexpected Android version' \
