@@ -31,7 +31,9 @@ for marker in \
   'macos-latest' \
   'universal-apple-darwin' \
   "APPLE_SIGNING_IDENTITY: '-'" \
-  'cargo install tauri-cli --git https://github.com/tauri-apps/tauri --rev 503bdbc1eade37d50a64ea7f81dbe853338b7fda --locked --force' \
+  'TAURI_APPIMAGE_CLI_REV: 503bdbc1eade37d50a64ea7f81dbe853338b7fda' \
+  'if !quick_sharun.exists()' \
+  'cargo install --path "$tauri_source/crates/tauri-cli" --locked --force' \
   'pnpm tauri android build --apk' \
   'pnpm tauri android build --split-per-abi --apk' \
   'Duplicate Android APKs for ABI' \
@@ -73,6 +75,44 @@ for index, job in enumerate(jobs):
     before_steps = block.split('    steps:', 1)[0]
     if '${{ secrets.' in before_steps:
         raise SystemExit(f'{job} exposes GitHub secrets at job scope')
+PY
+
+python3 - <<'PY'
+from pathlib import Path
+
+text = Path('.github/workflows/build-selfhost.yml').read_text()
+start = text.index('  build-linux:')
+end = text.index('  build-macos:', start)
+block = text[start:end]
+build_start = block.index('      - name: Build and collect Linux packages')
+build_env = block.index('        env:', build_start)
+if '        timeout-minutes: 45' not in block[build_start:build_env]:
+    raise SystemExit('Linux package build is missing its step-level hang timeout')
+if 'cargo install tauri-cli --git' in block:
+    raise SystemExit('Linux AppImage CLI is installed before applying the pinned helper-cache patch')
+
+install_start = block.index('      - name: Install truly portable AppImage bundler')
+install_end = block.index('      - name:', install_start + 8)
+install_block = block[install_start:install_end]
+run_start = install_block.index('        run: |\n') + len('        run: |\n')
+run_script = '\n'.join(
+    line[10:] if line.startswith('          ') else line
+    for line in install_block[run_start:].splitlines()
+)
+expected_patch_start = """download_start = '''  let data = download(
+'''
+download_start_replacement = '''  if !quick_sharun.exists() {
+    let data = download(
+'''"""
+expected_patch_end = """download_end = '''  write_and_make_executable(&quick_sharun, data)?;
+'''
+download_end_replacement = '''    write_and_make_executable(&quick_sharun, data)?;
+  }
+'''"""
+if expected_patch_start not in run_script or expected_patch_end not in run_script:
+    raise SystemExit('Linux AppImage CLI patch does not preserve the exact Rust source indentation')
+if 'raw.githubusercontent.com' in install_block:
+    raise SystemExit('Linux AppImage CLI patch embeds a moving third-party download URL')
 PY
 
 python3 - <<'PY'
