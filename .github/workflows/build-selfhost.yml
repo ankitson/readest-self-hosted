@@ -28,6 +28,7 @@ on:
         required: true
       ANDROID_KEY_PASSWORD:
         required: true
+
 permissions:
   contents: read
 
@@ -36,11 +37,20 @@ env:
   SELFHOST_APP_IDENTIFIER: com.readest.selfhost
   TAURI_UPDATER_ENDPOINT: https://github.com/${{ github.repository }}/releases/latest/download/latest.json
   SELFHOST_RELEASE_VERSION: ${{ inputs.release_version }}
+  NODE_OPTIONS: --max-old-space-size=8192
 
 jobs:
-  build-windows-x64:
+  build-windows:
     runs-on: windows-latest
     timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        config:
+          - arch: x64
+            rust_target: x86_64-pc-windows-msvc
+          - arch: arm64
+            rust_target: aarch64-pc-windows-msvc
     env:
       TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
       TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
@@ -48,16 +58,16 @@ jobs:
       TAURI_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
       TAURI_UPDATER_PUBKEY: ${{ secrets.TAURI_UPDATER_PUBKEY }}
     steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
       - name: Initialize git submodules
         run: git submodule update --init --recursive
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6
+        uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6
 
       - name: Setup Node
-        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v6
         with:
           node-version: 24
           cache: pnpm
@@ -89,11 +99,11 @@ jobs:
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
         with:
-          targets: x86_64-pc-windows-msvc
+          targets: ${{ matrix.config.rust_target }}
 
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
         with:
-          key: windows-selfhost-x64-cargo
+          key: windows-selfhost-${{ matrix.config.arch }}-cargo
 
       - name: Validate signing secrets
         shell: bash
@@ -106,55 +116,358 @@ jobs:
             fi
           done
 
-      - name: Build Windows x64 installer
+      - name: Build Windows installer and portable binary
         shell: bash
+        env:
+          RUST_TARGET: ${{ matrix.config.rust_target }}
+          ASSET_ARCH: ${{ matrix.config.arch }}
         run: |
           set -euo pipefail
           cd apps/readest-app
           pnpm patch-tauri-selfhost
-          pnpm tauri build --target x86_64-pc-windows-msvc --bundles nsis
+          pnpm tauri build --target "$RUST_TARGET" --bundles nsis
 
-      - name: Collect Windows artifacts
-        shell: bash
-        run: |
-          set -euo pipefail
-          cd apps/readest-app
           version=$(node -p "require('./package.json').version")
-          mkdir -p dist/selfhost/windows
+          output_dir=dist/selfhost/windows
+          mkdir -p "$output_dir"
           target_roots=()
           for target_root in ../../target src-tauri/target; do
             if [ -d "$target_root" ]; then
               target_roots+=("$target_root")
             fi
           done
-          if [ "${#target_roots[@]}" -eq 0 ]; then
-            echo "::error::Windows target directory was not produced"
+          mapfile -t installers < <(find "${target_roots[@]}" -path "*/${RUST_TARGET}/release/bundle/nsis/*.exe" -type f | sort)
+          if [ "${#installers[@]}" -ne 1 ]; then
+            echo "::error::Expected one Windows ${ASSET_ARCH} NSIS installer, found ${#installers[@]}"
+            printf '%s\n' "${installers[@]:-}"
             exit 1
           fi
-          mapfile -t installers < <(find "${target_roots[@]}" -path '*/release/bundle/nsis/*.exe' -type f)
-          installer="${installers[0]:-}"
-          if [ -z "$installer" ]; then
-            echo "::error::Windows installer was not produced"
-            exit 1
-          fi
-          asset="dist/selfhost/windows/Readest-Selfhost_${version}_x64-setup.exe"
-          cp "$installer" "$asset"
-          if [ -f "$installer.sig" ]; then
-            cp "$installer.sig" "$asset.sig"
+          installer="${installers[0]}"
+          case "$ASSET_ARCH" in
+            x64)
+              setup_asset="${output_dir}/Readest-Selfhost_${version}_x64-setup.exe"
+              portable_asset="${output_dir}/Readest-Selfhost_${version}_x64-portable.exe"
+              ;;
+            arm64)
+              setup_asset="${output_dir}/Readest-Selfhost_${version}_arm64-setup.exe"
+              portable_asset="${output_dir}/Readest-Selfhost_${version}_arm64-portable.exe"
+              ;;
+            *)
+              echo "::error::Unsupported Windows asset architecture: ${ASSET_ARCH}"
+              exit 1
+              ;;
+          esac
+          cp "$installer" "$setup_asset"
+          if [ -s "${installer}.sig" ]; then
+            cp "${installer}.sig" "${setup_asset}.sig"
           else
-            pnpm tauri signer sign "$asset"
+            pnpm tauri signer sign "$setup_asset"
           fi
+
+          printf 'NEXT_PUBLIC_PORTABLE_APP=true\n' >> .env.local
+          pnpm tauri build --target "$RUST_TARGET" --bundles nsis
+          mapfile -t binaries < <(find "${target_roots[@]}" -path "*/${RUST_TARGET}/release/readest.exe" -type f | sort)
+          if [ "${#binaries[@]}" -ne 1 ]; then
+            echo "::error::Expected one Windows ${ASSET_ARCH} portable binary, found ${#binaries[@]}"
+            printf '%s\n' "${binaries[@]:-}"
+            exit 1
+          fi
+          cp "${binaries[0]}" "$portable_asset"
+          pnpm tauri signer sign "$portable_asset"
 
       - name: Upload Windows artifacts
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: selfhost-windows-x64
+          name: selfhost-windows-${{ matrix.config.arch }}
           path: apps/readest-app/dist/selfhost/windows/*
           if-no-files-found: error
 
-  build-android-apk:
+  build-linux:
+    runs-on: ${{ matrix.config.runner }}
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        config:
+          - arch: x64
+            runner: ubuntu-22.04
+            rust_target: x86_64-unknown-linux-gnu
+          - arch: arm64
+            runner: ubuntu-22.04-arm
+            rust_target: aarch64-unknown-linux-gnu
+    env:
+      TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+      TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+      TAURI_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+      TAURI_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+      TAURI_UPDATER_PUBKEY: ${{ secrets.TAURI_UPDATER_PUBKEY }}
+      TAURI_BUNDLER_NEW_APPIMAGE_FORMAT: 'true'
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Initialize git submodules
+        run: git submodule update --init --recursive
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6
+
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v6
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            pkg-config \
+            libfontconfig-dev \
+            libgtk-3-dev \
+            libwebkit2gtk-4.1 \
+            libwebkit2gtk-4.1-dev \
+            libjavascriptcoregtk-4.1 \
+            libjavascriptcoregtk-4.1-dev \
+            gir1.2-javascriptcoregtk-4.1 \
+            gir1.2-webkit2-4.1 \
+            libappindicator3-dev \
+            librsvg2-dev \
+            patchelf \
+            xdg-utils
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile --prefer-offline
+
+      - name: Apply release version override
+        if: env.SELFHOST_RELEASE_VERSION != ''
+        run: |
+          set -euo pipefail
+          cd apps/readest-app
+          node - <<'NODE'
+          const fs = require('node:fs');
+          const version = process.env.SELFHOST_RELEASE_VERSION;
+          if (!/^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$/.test(version)) {
+            throw new Error(`Invalid release version: ${version}`);
+          }
+          const path = 'package.json';
+          const pkg = JSON.parse(fs.readFileSync(path, 'utf8'));
+          pkg.version = version;
+          fs.writeFileSync(path, `${JSON.stringify(pkg, null, 2)}\n`);
+          NODE
+
+      - name: Setup app vendors
+        run: pnpm --filter @readest/readest-app setup-vendors
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
+        with:
+          targets: ${{ matrix.config.rust_target }}
+
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        with:
+          key: linux-selfhost-${{ matrix.config.arch }}-cargo
+
+      - name: Install truly portable AppImage bundler
+        run: cargo install tauri-cli --git https://github.com/tauri-apps/tauri --branch feat/truly-portable-appimage --force
+
+      - name: Pin quick-sharun AppImage helper
+        run: |
+          set -euo pipefail
+          cache_dir="${XDG_CACHE_HOME:-$HOME/.cache}/tauri"
+          mkdir -p "$cache_dir"
+          curl -fsSL --retry 3 -o "$cache_dir/quick-sharun.sh" \
+            "https://github.com/pkgforge-dev/Anylinux-AppImages/raw/b3a9e985cdedf7efa81d172f182cd13983743147/useful-tools/quick-sharun.sh"
+          chmod +x "$cache_dir/quick-sharun.sh"
+
+      - name: Validate signing secrets
+        run: |
+          set -euo pipefail
+          for name in TAURI_SIGNING_PRIVATE_KEY TAURI_SIGNING_PRIVATE_KEY_PASSWORD TAURI_UPDATER_PUBKEY; do
+            if [ -z "${!name:-}" ]; then
+              echo "::error::$name secret is required"
+              exit 1
+            fi
+          done
+
+      - name: Build and collect Linux packages
+        env:
+          ASSET_ARCH: ${{ matrix.config.arch }}
+        run: |
+          set -euo pipefail
+          cd apps/readest-app
+          pnpm patch-tauri-selfhost
+          cargo tauri build
+
+          version=$(node -p "require('./package.json').version")
+          output_dir=dist/selfhost/linux
+          mkdir -p "$output_dir"
+          target_roots=()
+          for target_root in ../../target src-tauri/target; do
+            if [ -d "$target_root" ]; then
+              target_roots+=("$target_root")
+            fi
+          done
+          mapfile -t appimages < <(find "${target_roots[@]}" -path '*/release/bundle/appimage/*.AppImage' -type f | sort)
+          mapfile -t debs < <(find "${target_roots[@]}" -path '*/release/bundle/deb/*.deb' -type f | sort)
+          mapfile -t rpms < <(find "${target_roots[@]}" -path '*/release/bundle/rpm/*.rpm' -type f | sort)
+          if [ "${#appimages[@]}" -ne 1 ] || [ "${#debs[@]}" -ne 1 ] || [ "${#rpms[@]}" -ne 1 ]; then
+            echo "::error::Expected one AppImage, DEB, and RPM for Linux ${ASSET_ARCH}; found ${#appimages[@]}, ${#debs[@]}, ${#rpms[@]}"
+            exit 1
+          fi
+
+          copy_signed() {
+            local source="$1"
+            local destination="$2"
+            cp "$source" "$destination"
+            if [ -s "${source}.sig" ]; then
+              cp "${source}.sig" "${destination}.sig"
+            else
+              pnpm tauri signer sign "$destination"
+            fi
+          }
+
+          case "$ASSET_ARCH" in
+            x64)
+              appimage_asset="${output_dir}/Readest-Selfhost_${version}_amd64.AppImage"
+              deb_asset="${output_dir}/Readest-Selfhost_${version}_amd64.deb"
+              rpm_asset="${output_dir}/Readest-Selfhost-${version}-1.x86_64.rpm"
+              ;;
+            arm64)
+              appimage_asset="${output_dir}/Readest-Selfhost_${version}_aarch64.AppImage"
+              deb_asset="${output_dir}/Readest-Selfhost_${version}_arm64.deb"
+              rpm_asset="${output_dir}/Readest-Selfhost-${version}-1.aarch64.rpm"
+              ;;
+            *)
+              echo "::error::Unsupported Linux asset architecture: ${ASSET_ARCH}"
+              exit 1
+              ;;
+          esac
+          copy_signed "${appimages[0]}" "$appimage_asset"
+          copy_signed "${debs[0]}" "$deb_asset"
+          copy_signed "${rpms[0]}" "$rpm_asset"
+
+      - name: Upload Linux artifacts
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: selfhost-linux-${{ matrix.config.arch }}
+          path: apps/readest-app/dist/selfhost/linux/*
+          if-no-files-found: error
+
+  build-macos:
+    runs-on: macos-latest
+    timeout-minutes: 120
+    env:
+      TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+      TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+      TAURI_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+      TAURI_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+      TAURI_UPDATER_PUBKEY: ${{ secrets.TAURI_UPDATER_PUBKEY }}
+      APPLE_SIGNING_IDENTITY: '-'
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Initialize git submodules
+        run: git submodule update --init --recursive
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6
+
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v6
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile --prefer-offline
+
+      - name: Apply release version override
+        if: env.SELFHOST_RELEASE_VERSION != ''
+        run: |
+          set -euo pipefail
+          cd apps/readest-app
+          node - <<'NODE'
+          const fs = require('node:fs');
+          const version = process.env.SELFHOST_RELEASE_VERSION;
+          if (!/^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$/.test(version)) {
+            throw new Error(`Invalid release version: ${version}`);
+          }
+          const path = 'package.json';
+          const pkg = JSON.parse(fs.readFileSync(path, 'utf8'));
+          pkg.version = version;
+          fs.writeFileSync(path, `${JSON.stringify(pkg, null, 2)}\n`);
+          NODE
+
+      - name: Setup app vendors
+        run: pnpm --filter @readest/readest-app setup-vendors
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
+        with:
+          targets: x86_64-apple-darwin,aarch64-apple-darwin
+
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        with:
+          key: macos-selfhost-universal-cargo
+
+      - name: Validate signing secrets
+        run: |
+          set -euo pipefail
+          for name in TAURI_SIGNING_PRIVATE_KEY TAURI_SIGNING_PRIVATE_KEY_PASSWORD TAURI_UPDATER_PUBKEY; do
+            if [ -z "${!name:-}" ]; then
+              echo "::error::$name secret is required"
+              exit 1
+            fi
+          done
+
+      - name: Build and collect macOS Universal packages
+        run: |
+          set -euo pipefail
+          cd apps/readest-app
+          pnpm patch-tauri-selfhost
+          pnpm tauri build --target universal-apple-darwin --bundles dmg
+
+          version=$(node -p "require('./package.json').version")
+          output_dir=dist/selfhost/macos
+          mkdir -p "$output_dir"
+          target_roots=()
+          for target_root in ../../target src-tauri/target; do
+            if [ -d "$target_root" ]; then
+              target_roots+=("$target_root")
+            fi
+          done
+          dmgs=()
+          while IFS= read -r dmg; do
+            dmgs+=("$dmg")
+          done < <(find "${target_roots[@]}" -path '*/universal-apple-darwin/release/bundle/dmg/*.dmg' -type f | sort)
+          updater_archives=()
+          while IFS= read -r updater_archive; do
+            updater_archives+=("$updater_archive")
+          done < <(find "${target_roots[@]}" -path '*/universal-apple-darwin/release/bundle/macos/*.app.tar.gz' -type f | sort)
+          if [ "${#dmgs[@]}" -ne 1 ] || [ "${#updater_archives[@]}" -ne 1 ]; then
+            echo "::error::Expected one macOS Universal DMG and updater archive; found ${#dmgs[@]} and ${#updater_archives[@]}"
+            exit 1
+          fi
+          dmg_asset="${output_dir}/Readest-Selfhost_${version}_universal.dmg"
+          updater_asset="${output_dir}/Readest-Selfhost_${version}_universal.app.tar.gz"
+          cp "${dmgs[0]}" "$dmg_asset"
+          cp "${updater_archives[0]}" "$updater_asset"
+          if [ -s "${updater_archives[0]}.sig" ]; then
+            cp "${updater_archives[0]}.sig" "${updater_asset}.sig"
+          else
+            pnpm tauri signer sign "$updater_asset"
+          fi
+
+      - name: Upload macOS artifacts
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: selfhost-macos-universal
+          path: apps/readest-app/dist/selfhost/macos/*
+          if-no-files-found: error
+
+  build-android:
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    timeout-minutes: 120
     env:
       TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
       TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
@@ -166,22 +479,22 @@ jobs:
       ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
       ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
     steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
       - name: Initialize git submodules
         run: git submodule update --init --recursive
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6
+        uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6
 
       - name: Setup Node
-        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v6
         with:
           node-version: 24
           cache: pnpm
 
       - name: Setup Java
-        uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654 # v5
+        uses: actions/setup-java@0f481fcb613427c0f801b606911222b5b6f3083a # v5
         with:
           distribution: zulu
           java-version: '17'
@@ -242,9 +555,9 @@ jobs:
             fi
           done
 
-      - name: Build Android split APKs
+      - name: Initialize signed Android project
         env:
-          NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/28.2.13676358
+          ANDROID_KEYSTORE_PATH: ${{ runner.temp }}/readest-selfhost-keystore.jks
         run: |
           set -euo pipefail
           cd apps/readest-app
@@ -313,18 +626,32 @@ jobs:
 
           path.write_text(text)
           PY
-          export ANDROID_KEYSTORE_PATH="$RUNNER_TEMP/readest-selfhost-keystore.jks"
           base64 -d <<< "$ANDROID_KEYSTORE_BASE64" > "$ANDROID_KEYSTORE_PATH"
           popd
 
-          pnpm tauri android build --split-per-abi --apk
-
-      - name: Collect Android artifacts
+      - name: Build Android universal and split APKs
+        env:
+          ANDROID_KEYSTORE_PATH: ${{ runner.temp }}/readest-selfhost-keystore.jks
+          NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/28.2.13676358
         run: |
           set -euo pipefail
           cd apps/readest-app
           version=$(node -p "require('./package.json').version")
-          mkdir -p dist/selfhost/android
+          output_dir=dist/selfhost/android
+          mkdir -p "$output_dir"
+
+          pnpm tauri android build --apk
+          mapfile -t universal_apks < <(find src-tauri/gen/android/app/build/outputs/apk -type f -name '*universal*release*.apk' | sort)
+          if [ "${#universal_apks[@]}" -ne 1 ]; then
+            echo "::error::Expected one Android universal release APK, found ${#universal_apks[@]}"
+            printf '%s\n' "${universal_apks[@]:-}"
+            exit 1
+          fi
+          universal_asset="${output_dir}/Readest-Selfhost_${version}_universal.apk"
+          cp "${universal_apks[0]}" "$universal_asset"
+          pnpm tauri signer sign "$universal_asset"
+
+          pnpm tauri android build --split-per-abi --apk
           declare -A abi_to_asset=(
             ["arm64-v8a"]="arm64"
             ["armeabi-v7a"]="armv7"
@@ -333,23 +660,17 @@ jobs:
           )
           declare -A found_assets=()
           mapfile -t apks < <(find src-tauri/gen/android/app/build/outputs/apk -type f -name '*release*.apk' | sort)
-          if [ "${#apks[@]}" -eq 0 ]; then
-            echo "::error::Android release APKs were not produced"
-            exit 1
-          fi
           for apk in "${apks[@]}"; do
             mapfile -t apk_abis < <(unzip -Z1 "$apk" | sed -n 's#^lib/\([^/]*\)/.*#\1#p' | sort -u)
             if [ "${#apk_abis[@]}" -ne 1 ]; then
-              echo "Skipping non-split APK $apk with ABIs: ${apk_abis[*]:-none}"
               continue
             fi
             abi="${apk_abis[0]}"
             asset_arch="${abi_to_asset[$abi]:-}"
             if [ -z "$asset_arch" ]; then
-              echo "Skipping APK $apk with unsupported ABI: $abi"
               continue
             fi
-            asset="dist/selfhost/android/Readest-Selfhost_${version}_${asset_arch}.apk"
+            asset="${output_dir}/Readest-Selfhost_${version}_${asset_arch}.apk"
             cp "$apk" "$asset"
             pnpm tauri signer sign "$asset"
             found_assets["$asset_arch"]=1
@@ -357,7 +678,6 @@ jobs:
           for required_asset in arm64 armv7 x64 x86; do
             if [ -z "${found_assets[$required_asset]:-}" ]; then
               echo "::error::Android ${required_asset} release APK was not produced"
-              find src-tauri/gen/android/app/build/outputs/apk -type f -name '*.apk' -print
               exit 1
             fi
           done

@@ -13,7 +13,6 @@ on:
         type: string
   push:
     tags:
-      - 'v*-selfhost'
       - 'selfhost-v*'
 
 permissions:
@@ -35,15 +34,17 @@ jobs:
           INPUT_RELEASE_VERSION: ${{ inputs.release_version }}
         run: |
           set -euo pipefail
-          release_tag="${RELEASE_TAG}"
+          release_tag="${{ env.RELEASE_TAG }}"
           version="${INPUT_RELEASE_VERSION:-}"
           if [ -z "$version" ]; then
             version="${release_tag#selfhost-v}"
-            version="${version%-selfhost}"
-            version="${version#v}"
           fi
           if ! [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+([-+][0-9A-Za-z.-]+)?$ ]]; then
             echo "::error::Unable to resolve a valid release version from ${release_tag}"
+            exit 1
+          fi
+          if [ "$release_tag" != "selfhost-v${version}" ]; then
+            echo "::error::Release tag ${release_tag} does not match version ${version}"
             exit 1
           fi
           echo "release_version=$version" >> "$GITHUB_OUTPUT"
@@ -57,15 +58,17 @@ jobs:
 
   publish:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     needs:
       - release-metadata
       - build
     steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 0
 
       - name: Setup Node
-        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v6
         with:
           node-version: 24
 
@@ -74,97 +77,77 @@ jobs:
         with:
           path: artifacts
 
-      - name: Prepare release assets
+      - name: Flatten and validate release assets
         env:
           SELFHOST_RESOLVED_RELEASE_VERSION: ${{ needs.release-metadata.outputs.release_version }}
+          SELFHOST_RELEASE_ASSETS_DIR: release-assets
+          SELFHOST_RELEASE_NOTES_PATH: release-notes-selfhost.md
         run: |
           set -euo pipefail
           mkdir -p release-assets
-          find artifacts -type f -exec cp {} release-assets/ \;
-          rm -f release-assets/latest.json
-          node <<'NODE'
-          const fs = require('node:fs');
-          const path = require('node:path');
+          mapfile -t duplicate_names < <(find artifacts -type f -printf '%f\n' | sort | uniq -d)
+          if [ "${#duplicate_names[@]}" -ne 0 ]; then
+            echo "::error::Duplicate artifact basenames would overwrite release assets"
+            printf '%s\n' "${duplicate_names[@]}"
+            exit 1
+          fi
+          while IFS= read -r -d '' artifact; do
+            cp "$artifact" release-assets/
+          done < <(find artifacts -type f -print0)
+          node scripts/prepare-selfhost-release.mjs
 
-          const releaseTag = process.env.RELEASE_TAG;
-          const repository = process.env.GITHUB_REPOSITORY;
-          const version = process.env.SELFHOST_RESOLVED_RELEASE_VERSION;
-          const baseUrl = `https://github.com/${repository}/releases/download/${releaseTag}`;
-          const dir = 'release-assets';
-          const files = fs.readdirSync(dir);
-          const urlFor = (name) => `${baseUrl}/${encodeURIComponent(name)}`;
-          const readSignature = (assetName) => {
-            const sigPath = path.join(dir, `${assetName}.sig`);
-            if (!fs.existsSync(sigPath)) {
-              throw new Error(`Missing updater signature for ${assetName}`);
-            }
-            return fs.readFileSync(sigPath, 'utf8').trim();
-          };
-
-          const windowsAsset = files.find((name) => /_x64-setup\.exe$/i.test(name));
-          const androidPlatforms = [
-            ['android-arm64', /_arm64\.apk$/i],
-            ['android-armv7', /_armv7\.apk$/i],
-            ['android-x86_64', /_x64\.apk$/i],
-            ['android-i686', /_x86\.apk$/i],
-            ['android-universal', /_universal\.apk$/i],
-          ];
-          if (!windowsAsset) {
-            throw new Error('Missing Windows x64 installer artifact');
-          }
-
-          const latest = {
-            version,
-            notes: `Readest Selfhost ${releaseTag}`,
-            pub_date: new Date().toISOString(),
-            platforms: {
-              'windows-x86_64': {
-                signature: readSignature(windowsAsset),
-                url: urlFor(windowsAsset),
-              },
-            },
-          };
-
-          for (const [platform, pattern] of androidPlatforms) {
-            const asset = files.find((name) => pattern.test(name));
-            if (asset) {
-              latest.platforms[platform] = {
-                signature: readSignature(asset),
-                url: urlFor(asset),
-              };
-            }
-          }
-
-          if (!Object.keys(latest.platforms).some((platform) => platform.startsWith('android-'))) {
-            throw new Error('Missing Android APK artifact');
-          }
-
-          fs.writeFileSync(path.join(dir, 'latest.json'), `${JSON.stringify(latest, null, 2)}\n`);
-          NODE
-
-      - name: Create or update GitHub Release
+      - name: Create draft, upload assets, and publish release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          SELFHOST_RESOLVED_RELEASE_VERSION: ${{ needs.release-metadata.outputs.release_version }}
         run: |
           set -euo pipefail
-          if ! git rev-parse -q --verify "refs/tags/${RELEASE_TAG}" >/dev/null; then
-            git tag "$RELEASE_TAG" "$GITHUB_SHA"
-            git push origin "refs/tags/${RELEASE_TAG}"
-          fi
-          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
-            gh release edit "$RELEASE_TAG" \
-              --title "Readest Selfhost ${RELEASE_TAG}" \
-              --notes "Readest Selfhost client release ${RELEASE_TAG}"
+          release_tag="${{ env.RELEASE_TAG }}"
+          git fetch --force --tags origin
+          if git rev-parse -q --verify "refs/tags/${release_tag}^{commit}" >/dev/null; then
+            tag_commit=$(git rev-parse "refs/tags/${release_tag}^{commit}")
+            if [ "$tag_commit" != "$GITHUB_SHA" ]; then
+              echo "::error::Existing tag ${release_tag} points to ${tag_commit}, expected ${GITHUB_SHA}"
+              exit 1
+            fi
           else
-            gh release create "$RELEASE_TAG" \
-              --title "Readest Selfhost ${RELEASE_TAG}" \
-              --notes "Readest Selfhost client release ${RELEASE_TAG}"
+            git tag "$release_tag" "$GITHUB_SHA"
+            git push origin "refs/tags/${release_tag}"
           fi
-          for stale_asset in \
-            "Readest-Selfhost_${SELFHOST_RESOLVED_RELEASE_VERSION}_universal.apk" \
-            "Readest-Selfhost_${SELFHOST_RESOLVED_RELEASE_VERSION}_universal.apk.sig"
-          do
-            gh release delete-asset "$RELEASE_TAG" "$stale_asset" --yes >/dev/null 2>&1 || true
-          done
-          gh release upload "$RELEASE_TAG" release-assets/* --clobber
+
+          release_was_public=false
+          if gh release view "$release_tag" >/dev/null 2>&1; then
+            if [ "$(gh release view "$release_tag" --json isDraft --jq .isDraft)" = false ]; then
+              release_was_public=true
+            else
+              gh release edit "$release_tag" \
+                --draft \
+                --title "Readest Selfhost ${release_tag}" \
+                --notes-file release-notes-selfhost.md
+            fi
+          else
+            gh release create "$release_tag" \
+              --draft \
+              --title "Readest Selfhost ${release_tag}" \
+              --notes-file release-notes-selfhost.md
+          fi
+
+          gh release upload "$release_tag" release-assets/* --clobber
+
+          asset_count=$(gh release view "$release_tag" --json assets --jq '.assets | length')
+          if [ "$asset_count" -ne 34 ]; then
+            echo "::error::Expected 34 release assets after upload, found ${asset_count}"
+            exit 1
+          fi
+
+          if [ "$release_was_public" = true ]; then
+            gh release edit "$release_tag" \
+              --title "Readest Selfhost ${release_tag}" \
+              --notes-file release-notes-selfhost.md \
+              --latest
+          else
+            gh release edit "$release_tag" \
+              --draft=false \
+              --title "Readest Selfhost ${release_tag}" \
+              --notes-file release-notes-selfhost.md \
+              --latest
+          fi
