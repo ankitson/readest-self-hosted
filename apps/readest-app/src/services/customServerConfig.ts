@@ -19,6 +19,13 @@ export interface CustomServerConfig {
   fetchedAt: number;
 }
 
+export interface ManualCustomServerConfigInput {
+  serverBaseUrl: string;
+  apiBaseUrl?: string | undefined;
+  supabaseUrl: string;
+  supabaseAnonKey: string;
+}
+
 interface StorageAdapter {
   getItem: (key: string) => string | null;
   setItem: (key: string, value: string) => void;
@@ -453,6 +460,119 @@ export const resolveCustomServerConfig = async (
   };
 };
 
+const fetchConnectivityProbe = async (
+  url: string,
+  init: RequestInit,
+  fetchImpl: typeof fetch,
+  options: ResolveCustomServerConfigOptions,
+  unreachableCode: 'api-unreachable' | 'supabase-unreachable',
+) => {
+  const controller = new AbortController();
+  const timeout = setTimeout(
+    () => controller.abort(),
+    options.timeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS,
+  );
+
+  try {
+    return await fetchImpl(url, { ...init, signal: controller.signal });
+  } catch (error) {
+    if (controller.signal.aborted) {
+      throw new CustomServerConfigError('request-timeout', 'Connection request timed out.');
+    }
+    const message = error instanceof Error ? error.message : String(error);
+    if (/certificate|\btls\b|\bssl\b/i.test(message)) {
+      throw new CustomServerConfigError('tls-error', 'TLS connection failed.');
+    }
+    throw new CustomServerConfigError(unreachableCode, 'Connection request failed.');
+  } finally {
+    clearTimeout(timeout);
+  }
+};
+
+export const validateCustomServerConnectivity = async (
+  config: CustomServerConfig,
+  options: ResolveCustomServerConfigOptions = {},
+) => {
+  if (!config.supabaseUrl || !config.supabaseAnonKey) {
+    throw new CustomServerConfigError(
+      'missing-supabase-config',
+      'Supabase URL and public key are required.',
+    );
+  }
+
+  const fetchImpl = getCustomServerFetch(options.fetchImpl);
+  const apiResponse = await fetchConnectivityProbe(
+    joinUrlPath(config.apiBaseUrl, '/api/sync'),
+    { method: 'GET', headers: { Accept: 'application/json' } },
+    fetchImpl,
+    options,
+    'api-unreachable',
+  );
+  if (!apiResponse.ok && apiResponse.status !== 401 && apiResponse.status !== 403) {
+    throw new CustomServerConfigError(
+      'api-unreachable',
+      `Readest API probe returned HTTP ${apiResponse.status}.`,
+    );
+  }
+
+  const supabaseResponse = await fetchConnectivityProbe(
+    joinUrlPath(config.supabaseUrl, '/auth/v1/settings'),
+    {
+      method: 'GET',
+      headers: {
+        Accept: 'application/json',
+        apikey: config.supabaseAnonKey,
+        Authorization: `Bearer ${config.supabaseAnonKey}`,
+      },
+    },
+    fetchImpl,
+    options,
+    'supabase-unreachable',
+  );
+  if (!supabaseResponse.ok) {
+    throw new CustomServerConfigError(
+      'supabase-unreachable',
+      `Supabase probe returned HTTP ${supabaseResponse.status}.`,
+    );
+  }
+};
+
+export const createManualCustomServerConfig = async (
+  input: ManualCustomServerConfigInput,
+  options: ResolveCustomServerConfigOptions = {},
+): Promise<CustomServerConfig> => {
+  const serverBaseUrl = normalizeServerBaseUrl(input.serverBaseUrl, options);
+  const publicConfig = validatePublicConfig(
+    serverBaseUrl,
+    {
+      apiBaseUrl: input.apiBaseUrl?.trim() || serverBaseUrl,
+      supabaseUrl: input.supabaseUrl,
+      supabaseAnonKey: input.supabaseAnonKey,
+    },
+    options,
+  );
+  const config: CustomServerConfig = {
+    serverBaseUrl,
+    apiBaseUrl: publicConfig.apiBaseUrl ?? serverBaseUrl,
+    supabaseUrl: publicConfig.supabaseUrl,
+    supabaseAnonKey: publicConfig.supabaseAnonKey,
+    fetchedAt: options.now?.() ?? Date.now(),
+  };
+
+  await validateCustomServerConnectivity(config, options);
+  return config;
+};
+
+const hasSameEffectiveServerConfig = (
+  previous: CustomServerConfig | null,
+  next: CustomServerConfig,
+) =>
+  previous !== null &&
+  previous.serverBaseUrl === next.serverBaseUrl &&
+  previous.apiBaseUrl === next.apiBaseUrl &&
+  (previous.supabaseUrl ?? '') === (next.supabaseUrl ?? '') &&
+  (previous.supabaseAnonKey ?? '') === (next.supabaseAnonKey ?? '');
+
 export const saveCustomServerConfig = async (
   config: CustomServerConfig,
   { resetSession = false }: SaveCustomServerConfigOptions = {},
@@ -461,7 +581,7 @@ export const saveCustomServerConfig = async (
   const previous = loadCustomServerConfig();
   storage?.setItem(CUSTOM_SERVER_CONFIG_KEY, JSON.stringify(config));
 
-  if (resetSession && previous?.serverBaseUrl !== config.serverBaseUrl) {
+  if (resetSession && !hasSameEffectiveServerConfig(previous, config)) {
     const { clearAuthSessionForServerChange } = await import('@/helpers/auth');
     await clearAuthSessionForServerChange();
   }

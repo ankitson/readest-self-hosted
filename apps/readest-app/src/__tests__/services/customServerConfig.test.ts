@@ -24,6 +24,7 @@ import {
   saveCustomServerConfig,
   setCustomServerConfigStorageAdapter,
 } from '@/services/customServerConfig';
+import * as customServerConfigModule from '@/services/customServerConfig';
 
 const clearAuthSessionForServerChangeMock = vi.fn();
 
@@ -54,6 +55,37 @@ const jwtForRole = (role: string) =>
   `${encodeBase64Url({ alg: 'HS256', typ: 'JWT' })}.${encodeBase64Url({ role })}.signature`;
 
 const anonJwt = jwtForRole('anon');
+
+interface ManualConfigInput {
+  serverBaseUrl: string;
+  apiBaseUrl?: string;
+  supabaseUrl: string;
+  supabaseAnonKey: string;
+}
+
+interface ManualConfigOptions {
+  fetchImpl?: typeof fetch;
+  now?: () => number;
+  timeoutMs?: number;
+}
+
+type CreateManualConfig = (
+  input: ManualConfigInput,
+  options?: ManualConfigOptions,
+) => Promise<{
+  serverBaseUrl: string;
+  apiBaseUrl: string;
+  supabaseUrl?: string;
+  supabaseAnonKey?: string;
+  fetchedAt: number;
+}>;
+
+const getCreateManualConfig = () =>
+  (
+    customServerConfigModule as unknown as {
+      createManualCustomServerConfig?: CreateManualConfig;
+    }
+  ).createManualCustomServerConfig;
 
 const expectConfigError = (fn: () => unknown, code: string) => {
   try {
@@ -377,6 +409,132 @@ describe('customServerConfig', () => {
     });
   });
 
+  describe('manual compatibility config', () => {
+    const input = (): ManualConfigInput => ({
+      serverBaseUrl: 'https://readest.example.com/',
+      apiBaseUrl: '',
+      supabaseUrl: 'https://supabase.example.com/',
+      supabaseAnonKey: anonJwt,
+    });
+
+    test.each([200, 401, 403])('accepts Readest API HTTP %i as reachable', async (status) => {
+      const createManualConfig = getCreateManualConfig();
+      expect(createManualConfig).toBeTypeOf('function');
+      if (!createManualConfig) return;
+      const fetchImpl = vi
+        .fn()
+        .mockResolvedValueOnce(new Response('', { status }))
+        .mockResolvedValueOnce(jsonResponse({ external: {} })) as unknown as typeof fetch;
+
+      const config = await createManualConfig(input(), { fetchImpl, now: () => 321 });
+
+      expect(config).toEqual({
+        serverBaseUrl: 'https://readest.example.com',
+        apiBaseUrl: 'https://readest.example.com',
+        supabaseUrl: 'https://supabase.example.com',
+        supabaseAnonKey: anonJwt,
+        fetchedAt: 321,
+      });
+      expect(fetchImpl).toHaveBeenNthCalledWith(
+        1,
+        'https://readest.example.com/api/sync',
+        expect.objectContaining({ method: 'GET' }),
+      );
+      expect(fetchImpl).toHaveBeenNthCalledWith(
+        2,
+        'https://supabase.example.com/auth/v1/settings',
+        expect.objectContaining({
+          method: 'GET',
+          headers: expect.objectContaining({
+            apikey: anonJwt,
+            Authorization: `Bearer ${anonJwt}`,
+          }),
+        }),
+      );
+    });
+
+    test('reports Readest API and Supabase failures separately', async () => {
+      const createManualConfig = getCreateManualConfig();
+      expect(createManualConfig).toBeTypeOf('function');
+      if (!createManualConfig) return;
+
+      await expect(
+        createManualConfig(input(), {
+          fetchImpl: vi.fn(
+            async () => new Response('', { status: 404 }),
+          ) as unknown as typeof fetch,
+        }),
+      ).rejects.toMatchObject({ code: 'api-unreachable' });
+
+      const supabaseFailure = vi
+        .fn()
+        .mockResolvedValueOnce(new Response('', { status: 403 }))
+        .mockResolvedValueOnce(new Response('', { status: 503 })) as unknown as typeof fetch;
+      await expect(
+        createManualConfig(input(), { fetchImpl: supabaseFailure }),
+      ).rejects.toMatchObject({ code: 'supabase-unreachable' });
+    });
+
+    test('distinguishes timeout and TLS failures', async () => {
+      const createManualConfig = getCreateManualConfig();
+      expect(createManualConfig).toBeTypeOf('function');
+      if (!createManualConfig) return;
+
+      const timeoutFetch = vi.fn(
+        (_request: RequestInfo | URL, init?: RequestInit) =>
+          new Promise<Response>((_resolve, reject) => {
+            init?.signal?.addEventListener(
+              'abort',
+              () => reject(new DOMException('Aborted', 'AbortError')),
+              { once: true },
+            );
+          }),
+      ) as unknown as typeof fetch;
+      await expect(
+        createManualConfig(input(), { fetchImpl: timeoutFetch, timeoutMs: 1 }),
+      ).rejects.toMatchObject({ code: 'request-timeout' });
+
+      const tlsFetch = vi.fn(async () => {
+        throw new TypeError('certificate verify failed during TLS handshake');
+      }) as unknown as typeof fetch;
+      await expect(createManualConfig(input(), { fetchImpl: tlsFetch })).rejects.toMatchObject({
+        code: 'tls-error',
+      });
+    });
+
+    test('rejects malformed public keys without making a request', async () => {
+      const createManualConfig = getCreateManualConfig();
+      expect(createManualConfig).toBeTypeOf('function');
+      if (!createManualConfig) return;
+      const fetchImpl = vi.fn();
+
+      await expect(
+        createManualConfig(
+          { ...input(), supabaseAnonKey: 'not-a-supabase-public-key' },
+          { fetchImpl: fetchImpl as unknown as typeof fetch },
+        ),
+      ).rejects.toMatchObject({ code: 'invalid-config' });
+      expect(fetchImpl).not.toHaveBeenCalled();
+    });
+
+    test('does not mutate input after failed validation', async () => {
+      const createManualConfig = getCreateManualConfig();
+      expect(createManualConfig).toBeTypeOf('function');
+      if (!createManualConfig) return;
+      const values = input();
+      const original = { ...values };
+
+      await expect(
+        createManualConfig(values, {
+          fetchImpl: vi.fn(
+            async () => new Response('', { status: 500 }),
+          ) as unknown as typeof fetch,
+        }),
+      ).rejects.toMatchObject({ code: 'api-unreachable' });
+      expect(values).toEqual(original);
+    });
+  });
+
   describe('storage', () => {
     test('saves, reads, and clears current custom server config', async () => {
       const storage = makeMemoryStorage();
@@ -434,6 +592,49 @@ describe('customServerConfig', () => {
       );
 
       expect(clearAuthSessionForServerChangeMock).toHaveBeenCalledTimes(1);
+    });
+
+    test.each([
+      ['API URL', { apiBaseUrl: 'https://new-api.example.com' }],
+      ['Supabase URL', { supabaseUrl: 'https://new-supabase.example.com' }],
+      ['Supabase key', { supabaseAnonKey: 'new-public-key' }],
+    ])('resets session when the effective %s changes', async (_label, changedFields) => {
+      const storage = makeMemoryStorage();
+      setCustomServerConfigStorageAdapter(storage);
+      const original = {
+        serverBaseUrl: 'https://readest.example.com',
+        apiBaseUrl: 'https://api.example.com',
+        supabaseUrl: 'https://supabase.example.com',
+        supabaseAnonKey: 'public-key',
+        fetchedAt: 1,
+      };
+      await saveCustomServerConfig(original);
+      clearAuthSessionForServerChangeMock.mockClear();
+
+      await saveCustomServerConfig(
+        { ...original, ...changedFields, fetchedAt: 2 },
+        { resetSession: true },
+      );
+
+      expect(clearAuthSessionForServerChangeMock).toHaveBeenCalledTimes(1);
+    });
+
+    test('does not reset session when the effective config is unchanged', async () => {
+      const storage = makeMemoryStorage();
+      setCustomServerConfigStorageAdapter(storage);
+      const config = {
+        serverBaseUrl: 'https://readest.example.com',
+        apiBaseUrl: 'https://api.example.com',
+        supabaseUrl: 'https://supabase.example.com',
+        supabaseAnonKey: 'public-key',
+        fetchedAt: 1,
+      };
+      await saveCustomServerConfig(config);
+      clearAuthSessionForServerChangeMock.mockClear();
+
+      await saveCustomServerConfig({ ...config, fetchedAt: 2 }, { resetSession: true });
+
+      expect(clearAuthSessionForServerChangeMock).not.toHaveBeenCalled();
     });
 
     test('resets session when clearing an active custom server config', async () => {

@@ -166,7 +166,7 @@ git commit -m "feat: discover official WebUI client config"
 - Produces: `ManualCustomServerConfigInput`, `createManualCustomServerConfig(input, options): Promise<CustomServerConfig>`, and `validateCustomServerConnectivity(config, options): Promise<void>`.
 - Produces error codes: `request-timeout`, `tls-error`, `api-unreachable`, `supabase-unreachable`, and `manual-config-required` in addition to existing codes.
 
-- [ ] **Step 1: Add failing manual-config and probe tests**
+- [x] **Step 1: Add failing manual-config and probe tests**
 
 Add tests that assert API base defaults to the normalized server URL, `/api/sync` accepts 200/401/403, `/auth/v1/settings` receives both `apikey` and `Authorization: Bearer`, Supabase non-2xx becomes `supabase-unreachable`, API 404/5xx becomes `api-unreachable`, abort becomes `request-timeout`, TLS/certificate errors become `tls-error`, and failed validation leaves the input object unchanged.
 
@@ -199,13 +199,13 @@ expect(fetchImpl).toHaveBeenNthCalledWith(
 );
 ```
 
-- [ ] **Step 2: Run manual-config tests and verify RED**
+- [x] **Step 2: Run manual-config tests and verify RED**
 
 Run the Task 1 Vitest command.
 
 Expected: FAIL because the manual interfaces and endpoint-specific errors do not exist.
 
-- [ ] **Step 3: Implement manual construction and independent probes**
+- [x] **Step 3: Implement manual construction and independent probes**
 
 Add:
 
@@ -245,27 +245,27 @@ export const createManualCustomServerConfig = async (
 
 Probe `${apiBaseUrl}/api/sync` first and accept only `response.ok`, 401, or 403. Probe `${supabaseUrl}/auth/v1/settings` second with the public key headers and require `response.ok`. A shared request wrapper must preserve the endpoint label while mapping abort, TLS/certificate text, and other failures to the exact error codes above.
 
-- [ ] **Step 4: Add failing effective-identity storage tests**
+- [x] **Step 4: Add failing effective-identity storage tests**
 
 Add tests proving that changing only API URL, Supabase URL, or key clears auth once, while re-saving an equivalent normalized identity does not clear auth. Retain the existing load test with the v1 storage shape.
 
-- [ ] **Step 5: Run storage tests and verify RED**
+- [x] **Step 5: Run storage tests and verify RED**
 
 Run the Task 1 Vitest command.
 
 Expected: FAIL because session clearing currently compares only `serverBaseUrl`.
 
-- [ ] **Step 6: Compare the complete effective identity before clearing session**
+- [x] **Step 6: Compare the complete effective identity before clearing session**
 
 Add a helper that compares `serverBaseUrl`, `apiBaseUrl`, `supabaseUrl ?? ''`, and `supabaseAnonKey ?? ''`; use it in `saveCustomServerConfig`. Do not validate old stored values during `loadCustomServerConfig`, so valid v1 storage continues to load.
 
-- [ ] **Step 7: Run Task 2 tests and verify GREEN**
+- [x] **Step 7: Run Task 2 tests and verify GREEN**
 
 Run the Task 1 Vitest command.
 
 Expected: all manual config, connectivity, and storage tests PASS.
 
-- [ ] **Step 8: Commit Task 2**
+- [x] **Step 8: Commit Task 2**
 
 ```bash
 git add apps/readest-app/src/services/customServerConfig.ts apps/readest-app/src/__tests__/services/customServerConfig.test.ts
