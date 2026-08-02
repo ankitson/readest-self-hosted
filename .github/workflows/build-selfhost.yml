@@ -51,12 +51,6 @@ jobs:
             rust_target: x86_64-pc-windows-msvc
           - arch: arm64
             rust_target: aarch64-pc-windows-msvc
-    env:
-      TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-      TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-      TAURI_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-      TAURI_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-      TAURI_UPDATER_PUBKEY: ${{ secrets.TAURI_UPDATER_PUBKEY }}
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
@@ -107,6 +101,10 @@ jobs:
 
       - name: Validate signing secrets
         shell: bash
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          TAURI_UPDATER_PUBKEY: ${{ secrets.TAURI_UPDATER_PUBKEY }}
         run: |
           set -euo pipefail
           for name in TAURI_SIGNING_PRIVATE_KEY TAURI_SIGNING_PRIVATE_KEY_PASSWORD TAURI_UPDATER_PUBKEY; do
@@ -121,6 +119,11 @@ jobs:
         env:
           RUST_TARGET: ${{ matrix.config.rust_target }}
           ASSET_ARCH: ${{ matrix.config.arch }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          TAURI_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          TAURI_UPDATER_PUBKEY: ${{ secrets.TAURI_UPDATER_PUBKEY }}
         run: |
           set -euo pipefail
           cd apps/readest-app
@@ -196,11 +199,6 @@ jobs:
             runner: ubuntu-22.04-arm
             rust_target: aarch64-unknown-linux-gnu
     env:
-      TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-      TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-      TAURI_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-      TAURI_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-      TAURI_UPDATER_PUBKEY: ${{ secrets.TAURI_UPDATER_PUBKEY }}
       TAURI_BUNDLER_NEW_APPIMAGE_FORMAT: 'true'
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
@@ -268,7 +266,7 @@ jobs:
           key: linux-selfhost-${{ matrix.config.arch }}-cargo
 
       - name: Install truly portable AppImage bundler
-        run: cargo install tauri-cli --git https://github.com/tauri-apps/tauri --branch feat/truly-portable-appimage --force
+        run: cargo install tauri-cli --git https://github.com/tauri-apps/tauri --rev 503bdbc1eade37d50a64ea7f81dbe853338b7fda --locked --force
 
       - name: Pin quick-sharun AppImage helper
         run: |
@@ -280,6 +278,10 @@ jobs:
           chmod +x "$cache_dir/quick-sharun.sh"
 
       - name: Validate signing secrets
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          TAURI_UPDATER_PUBKEY: ${{ secrets.TAURI_UPDATER_PUBKEY }}
         run: |
           set -euo pipefail
           for name in TAURI_SIGNING_PRIVATE_KEY TAURI_SIGNING_PRIVATE_KEY_PASSWORD TAURI_UPDATER_PUBKEY; do
@@ -292,6 +294,11 @@ jobs:
       - name: Build and collect Linux packages
         env:
           ASSET_ARCH: ${{ matrix.config.arch }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          TAURI_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          TAURI_UPDATER_PUBKEY: ${{ secrets.TAURI_UPDATER_PUBKEY }}
         run: |
           set -euo pipefail
           cd apps/readest-app
@@ -357,11 +364,6 @@ jobs:
     runs-on: macos-latest
     timeout-minutes: 120
     env:
-      TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-      TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-      TAURI_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-      TAURI_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-      TAURI_UPDATER_PUBKEY: ${{ secrets.TAURI_UPDATER_PUBKEY }}
       APPLE_SIGNING_IDENTITY: '-'
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
@@ -411,6 +413,10 @@ jobs:
           key: macos-selfhost-universal-cargo
 
       - name: Validate signing secrets
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          TAURI_UPDATER_PUBKEY: ${{ secrets.TAURI_UPDATER_PUBKEY }}
         run: |
           set -euo pipefail
           for name in TAURI_SIGNING_PRIVATE_KEY TAURI_SIGNING_PRIVATE_KEY_PASSWORD TAURI_UPDATER_PUBKEY; do
@@ -421,6 +427,12 @@ jobs:
           done
 
       - name: Build and collect macOS Universal packages
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          TAURI_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          TAURI_UPDATER_PUBKEY: ${{ secrets.TAURI_UPDATER_PUBKEY }}
         run: |
           set -euo pipefail
           cd apps/readest-app
@@ -468,16 +480,6 @@ jobs:
   build-android:
     runs-on: ubuntu-latest
     timeout-minutes: 120
-    env:
-      TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-      TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-      TAURI_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-      TAURI_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-      TAURI_UPDATER_PUBKEY: ${{ secrets.TAURI_UPDATER_PUBKEY }}
-      ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
-      ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
-      ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
-      ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
@@ -538,6 +540,14 @@ jobs:
           key: android-selfhost-cargo
 
       - name: Validate signing secrets
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          TAURI_UPDATER_PUBKEY: ${{ secrets.TAURI_UPDATER_PUBKEY }}
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
           set -euo pipefail
           for name in \
@@ -557,7 +567,7 @@ jobs:
 
       - name: Initialize signed Android project
         env:
-          ANDROID_KEYSTORE_PATH: ${{ runner.temp }}/readest-selfhost-keystore.jks
+          TAURI_UPDATER_PUBKEY: ${{ secrets.TAURI_UPDATER_PUBKEY }}
         run: |
           set -euo pipefail
           cd apps/readest-app
@@ -626,13 +636,28 @@ jobs:
 
           path.write_text(text)
           PY
-          base64 -d <<< "$ANDROID_KEYSTORE_BASE64" > "$ANDROID_KEYSTORE_PATH"
           popd
+
+      - name: Decode Android keystore
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PATH: ${{ runner.temp }}/readest-selfhost-keystore.jks
+        run: |
+          set -euo pipefail
+          base64 -d <<< "$ANDROID_KEYSTORE_BASE64" > "$ANDROID_KEYSTORE_PATH"
 
       - name: Build Android universal and split APKs
         env:
           ANDROID_KEYSTORE_PATH: ${{ runner.temp }}/readest-selfhost-keystore.jks
           NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/28.2.13676358
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          TAURI_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          TAURI_UPDATER_PUBKEY: ${{ secrets.TAURI_UPDATER_PUBKEY }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
           set -euo pipefail
           cd apps/readest-app
@@ -649,6 +674,11 @@ jobs:
           fi
           universal_asset="${output_dir}/Readest-Selfhost_${version}_universal.apk"
           cp "${universal_apks[0]}" "$universal_asset"
+          mapfile -t universal_abis < <(unzip -Z1 "$universal_asset" | sed -n 's#^lib/\([^/]*\)/.*#\1#p' | sort -u)
+          if [ "${universal_abis[*]}" != 'arm64-v8a armeabi-v7a x86 x86_64' ]; then
+            echo "::error::Unexpected Android universal ABI set: ${universal_abis[*]:-none}"
+            exit 1
+          fi
           pnpm tauri signer sign "$universal_asset"
 
           pnpm tauri android build --split-per-abi --apk
@@ -670,6 +700,10 @@ jobs:
             if [ -z "$asset_arch" ]; then
               continue
             fi
+            if [ -n "${found_assets[$asset_arch]:-}" ]; then
+              echo "::error::Duplicate Android APKs for ABI ${abi}"
+              exit 1
+            fi
             asset="${output_dir}/Readest-Selfhost_${version}_${asset_arch}.apk"
             cp "$apk" "$asset"
             pnpm tauri signer sign "$asset"
@@ -678,6 +712,56 @@ jobs:
           for required_asset in arm64 armv7 x64 x86; do
             if [ -z "${found_assets[$required_asset]:-}" ]; then
               echo "::error::Android ${required_asset} release APK was not produced"
+              exit 1
+            fi
+          done
+
+          mapfile -t final_apks < <(find "$output_dir" -maxdepth 1 -type f -name '*.apk' | sort)
+          if [ "${#final_apks[@]}" -ne 5 ]; then
+            echo "::error::Expected five final Android APKs, found ${#final_apks[@]}"
+            exit 1
+          fi
+
+          build_tools=$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -n 1)
+          if [ ! -x "$build_tools/apksigner" ] || [ ! -x "$build_tools/aapt" ]; then
+            echo "::error::Android build tools do not provide apksigner and aapt"
+            exit 1
+          fi
+          export PATH="$build_tools:$PATH"
+          expected_certificate_digest=$(
+            keytool -exportcert \
+              -alias "$ANDROID_KEY_ALIAS" \
+              -keystore "$ANDROID_KEYSTORE_PATH" \
+              -storepass "$ANDROID_KEYSTORE_PASSWORD" 2>/dev/null |
+              sha256sum |
+              awk '{print $1}'
+          )
+          if [ -z "$expected_certificate_digest" ]; then
+            echo "::error::Unable to derive the Android keystore certificate digest"
+            exit 1
+          fi
+
+          for apk in "${final_apks[@]}"; do
+            verification=$(apksigner verify --verbose --print-certs "$apk")
+            certificate_digest=$(
+              sed -n 's/^Signer #1 certificate SHA-256 digest: //p' <<< "$verification" |
+                head -n 1 |
+                tr 'A-F' 'a-f'
+            )
+            if [ "$certificate_digest" != "$expected_certificate_digest" ]; then
+              echo "::error::Unexpected Android signing certificate for ${apk}"
+              exit 1
+            fi
+
+            badging=$(aapt dump badging "$apk")
+            package_identifier=$(sed -n "s/^package: name='\([^']*\)'.*/\1/p" <<< "$badging")
+            package_version=$(sed -n "s/^package: .*versionName='\([^']*\)'.*/\1/p" <<< "$badging")
+            if [ "$package_identifier" != "$SELFHOST_APP_IDENTIFIER" ]; then
+              echo "::error::Unexpected Android package identifier for ${apk}: ${package_identifier}"
+              exit 1
+            fi
+            if [ "$package_version" != "$version" ]; then
+              echo "::error::Unexpected Android version for ${apk}: ${package_version}"
               exit 1
             fi
           done

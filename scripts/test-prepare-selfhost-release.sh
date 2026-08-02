@@ -9,6 +9,7 @@ trap 'rm -rf "$tmp_dir"' EXIT
 
 version=0.11.20
 release_tag="selfhost-v${version}"
+release_pub_date=2026-07-19T20:11:12Z
 assets_dir="$tmp_dir/release-assets"
 notes_path="$tmp_dir/release-notes.md"
 mkdir -p "$assets_dir"
@@ -61,6 +62,7 @@ run_preparer() {
   RELEASE_TAG="$release_tag" \
     GITHUB_REPOSITORY=luoji12103/readest-self-hosted \
     SELFHOST_RESOLVED_RELEASE_VERSION="$version" \
+    SELFHOST_RELEASE_PUB_DATE="$release_pub_date" \
     SELFHOST_RELEASE_ASSETS_DIR="$assets_dir" \
     SELFHOST_RELEASE_NOTES_PATH="$notes_path" \
     node scripts/prepare-selfhost-release.mjs
@@ -69,6 +71,11 @@ run_preparer() {
 run_preparer
 
 jq -e --arg version "$version" '.version == $version' "$assets_dir/latest.json" >/dev/null
+jq -e --arg pub_date "$release_pub_date" '.pub_date == $pub_date' "$assets_dir/latest.json" >/dev/null
+cp "$assets_dir/latest.json" "$tmp_dir/first-latest.json"
+sleep 0.01
+run_preparer >/dev/null
+cmp "$tmp_dir/first-latest.json" "$assets_dir/latest.json"
 
 expected_platforms=(
   android-arm64
@@ -125,5 +132,15 @@ if run_preparer >"$tmp_dir/missing.stdout" 2>"$tmp_dir/missing.stderr"; then
   exit 1
 fi
 rg -q "Missing release assets: ${missing_signature}" "$tmp_dir/missing.stderr"
+
+printf 'test-signature-for-%s\n' "${missing_signature%.sig}" > "$assets_dir/$missing_signature"
+empty_asset="Readest-Selfhost_${version}_universal.dmg"
+: > "$assets_dir/$empty_asset"
+
+if run_preparer >"$tmp_dir/empty.stdout" 2>"$tmp_dir/empty.stderr"; then
+  echo "Release preparation unexpectedly accepted an empty package" >&2
+  exit 1
+fi
+rg -q "Release asset is empty: ${empty_asset}" "$tmp_dir/empty.stderr"
 
 echo "Selfhost release asset preparation tests passed."

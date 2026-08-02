@@ -18,6 +18,10 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: release-selfhost-${{ github.repository }}-${{ github.ref_type == 'tag' && github.ref_name || inputs.tag }}
+  cancel-in-progress: false
+
 env:
   RELEASE_TAG: ${{ github.ref_type == 'tag' && github.ref_name || inputs.tag }}
 
@@ -94,6 +98,8 @@ jobs:
           while IFS= read -r -d '' artifact; do
             cp "$artifact" release-assets/
           done < <(find artifacts -type f -print0)
+          SELFHOST_RELEASE_PUB_DATE=$(git show -s --format=%cI "$GITHUB_SHA")
+          export SELFHOST_RELEASE_PUB_DATE
           node scripts/prepare-selfhost-release.mjs
 
       - name: Create draft, upload assets, and publish release
@@ -114,40 +120,52 @@ jobs:
             git push origin "refs/tags/${release_tag}"
           fi
 
-          release_was_public=false
           if gh release view "$release_tag" >/dev/null 2>&1; then
-            if [ "$(gh release view "$release_tag" --json isDraft --jq .isDraft)" = false ]; then
-              release_was_public=true
-            else
-              gh release edit "$release_tag" \
-                --draft \
-                --title "Readest Selfhost ${release_tag}" \
-                --notes-file release-notes-selfhost.md
+            release_state=$(gh release view "$release_tag" --json isDraft,isPrerelease)
+            if [ "$(jq -r .isPrerelease <<< "$release_state")" != false ]; then
+              echo "::error::Existing prereleases cannot be resumed as stable selfhost releases"
+              exit 1
             fi
+            if [ "$(jq -r .isDraft <<< "$release_state")" != true ]; then
+              echo "::error::Existing public releases are immutable"
+              exit 1
+            fi
+            gh release edit "$release_tag" \
+              --draft \
+              --prerelease=false \
+              --title "Readest Selfhost ${release_tag}" \
+              --notes-file release-notes-selfhost.md
           else
             gh release create "$release_tag" \
               --draft \
+              --prerelease=false \
               --title "Readest Selfhost ${release_tag}" \
               --notes-file release-notes-selfhost.md
           fi
 
           gh release upload "$release_tag" release-assets/* --clobber
 
-          asset_count=$(gh release view "$release_tag" --json assets --jq '.assets | length')
-          if [ "$asset_count" -ne 34 ]; then
-            echo "::error::Expected 34 release assets after upload, found ${asset_count}"
+          find release-assets -maxdepth 1 -type f -printf '%f\t%s\n' | sort > expected-assets.tsv
+          inventory_matches=false
+          for attempt in {1..5}; do
+            gh release view "$release_tag" --json assets \
+              --jq '.assets[] | [.name, .size] | @tsv' | sort > remote-assets.tsv
+            if cmp -s expected-assets.tsv remote-assets.tsv; then
+              inventory_matches=true
+              break
+            fi
+            echo "Remote asset inventory is not consistent yet (attempt ${attempt}/5)"
+            sleep 2
+          done
+          if [ "$inventory_matches" != true ]; then
+            diff -u expected-assets.tsv remote-assets.tsv || true
+            echo "::error::Remote release asset names or sizes do not match the validated local set"
             exit 1
           fi
 
-          if [ "$release_was_public" = true ]; then
-            gh release edit "$release_tag" \
-              --title "Readest Selfhost ${release_tag}" \
-              --notes-file release-notes-selfhost.md \
-              --latest
-          else
-            gh release edit "$release_tag" \
-              --draft=false \
-              --title "Readest Selfhost ${release_tag}" \
-              --notes-file release-notes-selfhost.md \
-              --latest
-          fi
+          gh release edit "$release_tag" \
+            --draft=false \
+            --prerelease=false \
+            --title "Readest Selfhost ${release_tag}" \
+            --notes-file release-notes-selfhost.md \
+            --latest

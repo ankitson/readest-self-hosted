@@ -12,6 +12,7 @@ const required = (name) => {
 const version = required('SELFHOST_RESOLVED_RELEASE_VERSION');
 const releaseTag = required('RELEASE_TAG');
 const repository = required('GITHUB_REPOSITORY');
+const releasePubDate = required('SELFHOST_RELEASE_PUB_DATE');
 const assetsDir = path.resolve(process.env.SELFHOST_RELEASE_ASSETS_DIR || 'release-assets');
 const notesPath = path.resolve(
   process.env.SELFHOST_RELEASE_NOTES_PATH || 'release-notes-selfhost.md',
@@ -25,6 +26,12 @@ if (releaseTag !== `selfhost-v${version}`) {
 }
 if (!/^[0-9A-Za-z_.-]+\/[0-9A-Za-z_.-]+$/.test(repository)) {
   throw new Error(`Invalid GitHub repository: ${repository}`);
+}
+if (
+  !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/.test(releasePubDate) ||
+  Number.isNaN(Date.parse(releasePubDate))
+) {
+  throw new Error(`Invalid selfhost release publication date: ${releasePubDate}`);
 }
 if (!fs.statSync(assetsDir, { throwIfNoEntry: false })?.isDirectory()) {
   throw new Error(`Release assets directory does not exist: ${assetsDir}`);
@@ -90,6 +97,11 @@ if (missingAssets.length > 0) {
 if (unexpectedAssets.length > 0) {
   throw new Error(`Unexpected release assets: ${unexpectedAssets.join(', ')}`);
 }
+for (const assetName of expectedAssets) {
+  if (fs.statSync(path.join(assetsDir, assetName)).size === 0) {
+    throw new Error(`Release asset is empty: ${assetName}`);
+  }
+}
 
 const baseUrl = `https://github.com/${repository}/releases/download/${releaseTag}`;
 const readSignature = (assetName) => {
@@ -135,7 +147,7 @@ const platforms = {
 const latest = {
   version,
   notes: `Readest Selfhost ${releaseTag}`,
-  pub_date: new Date().toISOString(),
+  pub_date: releasePubDate,
   platforms,
 };
 fs.writeFileSync(path.join(assetsDir, 'latest.json'), `${JSON.stringify(latest, null, 2)}\n`);

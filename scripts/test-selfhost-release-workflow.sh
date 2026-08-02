@@ -29,8 +29,16 @@ for marker in \
   'macos-latest' \
   'universal-apple-darwin' \
   "APPLE_SIGNING_IDENTITY: '-'" \
+  'cargo install tauri-cli --git https://github.com/tauri-apps/tauri --rev 503bdbc1eade37d50a64ea7f81dbe853338b7fda --locked --force' \
   'pnpm tauri android build --apk' \
   'pnpm tauri android build --split-per-abi --apk' \
+  'Duplicate Android APKs for ABI' \
+  'apksigner verify --verbose --print-certs' \
+  'keytool -exportcert' \
+  'aapt dump badging' \
+  'Unexpected Android universal ABI set' \
+  'Unexpected Android package identifier' \
+  'Unexpected Android version' \
   "Readest-Selfhost_\${version}_universal.apk" \
   "Readest-Selfhost_\${version}_x64-portable.exe" \
   "Readest-Selfhost_\${version}_arm64-portable.exe" \
@@ -40,6 +48,37 @@ for marker in \
 do
   require_marker "$build" "$marker"
 done
+
+python3 - <<'PY'
+from pathlib import Path
+
+text = Path('.github/workflows/build-selfhost.yml').read_text()
+jobs = ('build-windows', 'build-linux', 'build-macos', 'build-android')
+for index, job in enumerate(jobs):
+    start = text.index(f'  {job}:')
+    following = [text.find(f'  {candidate}:', start + 1) for candidate in jobs[index + 1 :]]
+    following = [position for position in following if position != -1]
+    end = min(following) if following else len(text)
+    block = text[start:end]
+    before_steps = block.split('    steps:', 1)[0]
+    if '${{ secrets.' in before_steps:
+        raise SystemExit(f'{job} exposes GitHub secrets at job scope')
+PY
+
+python3 - <<'PY'
+from pathlib import Path
+
+text = Path('.github/workflows/build-selfhost.yml').read_text()
+start = text.index('      - name: Initialize signed Android project')
+end = text.index('      - name:', start + 8)
+block = text[start:end]
+if 'ANDROID_KEYSTORE_BASE64' in block:
+    raise SystemExit('Android project initialization still has access to the private keystore')
+if 'TAURI_UPDATER_PUBKEY' not in block:
+    raise SystemExit('Android project initialization is missing the public updater key')
+if '      - name: Decode Android keystore' not in text:
+    raise SystemExit('Android keystore does not have a dedicated decode step')
+PY
 
 for forbidden_apple_secret in \
   APPLE_CERTIFICATE \
@@ -60,16 +99,28 @@ if sed -n '/^  build-macos:/,/^  build-android:/p' "$build" | rg -q '\bmapfile\b
 fi
 
 for marker in \
+  "group: release-selfhost-\${{ github.repository }}-\${{ github.ref_type == 'tag' && github.ref_name || inputs.tag }}" \
+  'cancel-in-progress: false' \
   'needs:' \
   '- build' \
   'scripts/prepare-selfhost-release.mjs' \
+  "SELFHOST_RELEASE_PUB_DATE=\$(git show -s --format=%cI \"\$GITHUB_SHA\")" \
+  'Existing public releases are immutable' \
+  'isPrerelease' \
   '--draft' \
   '--draft=false' \
+  '--prerelease=false' \
   '--latest' \
+  'diff -u expected-assets.tsv remote-assets.tsv' \
   "gh release upload \"\$release_tag\" release-assets/* --clobber"
 do
   require_marker "$release" "$marker"
 done
+
+if rg -Fq -- 'release_was_public' "$release"; then
+  echo "Release workflow still permits in-place mutation of a public release" >&2
+  exit 1
+fi
 
 if rg -Fq -- 'const androidPlatforms' "$release"; then
   echo "Release workflow still contains the embedded partial manifest generator" >&2
