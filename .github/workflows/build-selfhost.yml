@@ -439,7 +439,7 @@ jobs:
           set -euo pipefail
           cd apps/readest-app
           pnpm patch-tauri-selfhost
-          pnpm tauri build --target universal-apple-darwin --bundles dmg
+          pnpm tauri build --target universal-apple-darwin
 
           version=$(node -p "require('./package.json').version")
           output_dir=dist/selfhost/macos

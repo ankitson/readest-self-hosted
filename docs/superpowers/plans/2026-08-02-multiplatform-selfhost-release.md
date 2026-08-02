@@ -238,10 +238,12 @@ APPLE_SIGNING_IDENTITY: '-'
 Run:
 
 ```bash
-pnpm tauri build --target universal-apple-darwin --bundles dmg
+pnpm tauri build --target universal-apple-darwin
 ```
 
-Collect one DMG and one `.app.tar.gz`, copy them to the Task 1 deterministic
+The default macOS bundle set is required because the `app` target produces the
+updater archive while the `dmg` target produces the installer. Collect one DMG
+and one `.app.tar.gz`, copy them to the Task 1 deterministic
 names, preserve or generate the updater archive signature, and upload
 `selfhost-macos-universal`.
 

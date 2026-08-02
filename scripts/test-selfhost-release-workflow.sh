@@ -99,6 +99,10 @@ if sed -n '/^  build-macos:/,/^  build-android:/p' "$build" | rg -q '\bmapfile\b
   echo "macOS selfhost job uses mapfile, which is unavailable in system Bash 3.2" >&2
   exit 1
 fi
+if sed -n '/^  build-macos:/,/^  build-android:/p' "$build" | rg -Fq -- '--bundles dmg'; then
+  echo "macOS selfhost job excludes the app updater target with a DMG-only build" >&2
+  exit 1
+fi
 
 for marker in \
   "group: release-selfhost-\${{ github.repository }}-\${{ github.ref_type == 'tag' && github.ref_name || inputs.tag }}" \
