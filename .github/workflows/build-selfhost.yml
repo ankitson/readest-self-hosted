@@ -753,6 +753,7 @@ jobs:
               --ks-key-alias "$ANDROID_KEY_ALIAS" \
               --ks-pass env:ANDROID_KEYSTORE_PASSWORD \
               --key-pass env:ANDROID_KEY_PASSWORD \
+              --v4-signing-enabled false \
               --out "$signed_apk" \
               "$apk"
             mv "$signed_apk" "$apk"

@@ -40,6 +40,7 @@ for marker in \
   '--ks-key-alias "$ANDROID_KEY_ALIAS"' \
   '--ks-pass env:ANDROID_KEYSTORE_PASSWORD' \
   '--key-pass env:ANDROID_KEY_PASSWORD' \
+  '--v4-signing-enabled false' \
   'apksigner verify --verbose --print-certs' \
   'keytool -exportcert' \
   'aapt dump badging' \
@@ -123,8 +124,13 @@ if sed -n '/^  build-macos:/,/^  build-android:/p' "$build" | rg -q '\bmapfile\b
   echo "macOS selfhost job uses mapfile, which is unavailable in system Bash 3.2" >&2
   exit 1
 fi
-if sed -n '/^  build-macos:/,/^  build-android:/p' "$build" | rg -Fq -- '--bundles dmg'; then
-  echo "macOS selfhost job excludes the app updater target with a DMG-only build" >&2
+if sed -n '/^  build-macos:/,/^  build-android:/p' "$build" | rg -q -- '--bundles([=[:space:]]|$)'; then
+  echo "macOS selfhost job restricts the configured DMG and app updater bundle targets" >&2
+  exit 1
+fi
+if ! sed -n '/^  build-macos:/,/^  build-android:/p' "$build" |
+  rg -q '^[[:space:]]*pnpm tauri build --target universal-apple-darwin[[:space:]]*$'; then
+  echo "macOS selfhost job is missing the unrestricted Universal bundle build" >&2
   exit 1
 fi
 
