@@ -806,10 +806,7 @@ jobs:
 
             verification=$(apksigner verify --verbose --print-certs "$apk")
             certificate_digest=$(
-              sed -n 's/^Signer #1 certificate SHA-256 digest: //p' <<< "$verification" |
-                head -n 1 |
-                tr -d '[:space:]:' |
-                tr 'A-F' 'a-f'
+              bash "$GITHUB_WORKSPACE/scripts/extract-android-certificate-sha256.sh" <<< "$verification"
             )
             if [ "$certificate_digest" != "$SELFHOST_ANDROID_CERT_SHA256" ]; then
               echo "::error::Unexpected Android signing certificate for ${apk}: got ${certificate_digest:-missing}, expected ${SELFHOST_ANDROID_CERT_SHA256}"

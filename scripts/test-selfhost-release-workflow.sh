@@ -7,6 +7,37 @@ cd "$ROOT_DIR"
 build=.github/workflows/build-selfhost.yml
 release=.github/workflows/release-selfhost.yml
 safety=.github/workflows/selfhost-safety.yml
+android_cert_parser=scripts/extract-android-certificate-sha256.sh
+
+expected_android_cert=903bf29bdf76ec24766e48eb8eafc0f0d228572be347008956b3f6aa63d753be
+legacy_apksigner_output="Signer #1 certificate SHA-256 digest: ${expected_android_cert}"
+current_apksigner_output="V2 Signer: certificate SHA-256 digest: ${expected_android_cert}"
+uppercase_colon_android_cert=$(sed 's/../&:/g; s/:$//' <<< "${expected_android_cert^^}")
+current_v3_apksigner_output="V3.0 Signer: certificate SHA-256 digest: ${uppercase_colon_android_cert}"
+
+assert_android_cert_parse() {
+  local description="$1"
+  local apksigner_output="$2"
+  local expected="$3"
+  local actual
+  actual=$(printf '%s\n' "$apksigner_output" | bash "$android_cert_parser")
+  if [ "$actual" != "$expected" ]; then
+    echo "Android certificate parser ${description}: got ${actual:-empty}, expected ${expected:-empty}" >&2
+    exit 1
+  fi
+}
+
+for apksigner_output in "$legacy_apksigner_output" "$current_apksigner_output" "$current_v3_apksigner_output"; do
+  assert_android_cert_parse "rejected a supported apksigner output format" "$apksigner_output" "$expected_android_cert"
+done
+assert_android_cert_parse \
+  "accepted an unrelated certificate line" \
+  "Unrelated certificate SHA-256 digest: ${expected_android_cert}" \
+  ""
+assert_android_cert_parse \
+  "accepted a malformed digest" \
+  'V3.0 Signer: certificate SHA-256 digest: not-a-sha256' \
+  ""
 
 require_marker() {
   local file="$1"
@@ -44,7 +75,7 @@ for marker in \
   '--key-pass env:ANDROID_KEY_PASSWORD' \
   '--v4-signing-enabled false' \
   'apksigner verify --verbose --print-certs' \
-  "tr -d '[:space:]:'" \
+  'bash "$GITHUB_WORKSPACE/scripts/extract-android-certificate-sha256.sh"' \
   'keytool -exportcert' \
   'aapt dump badging' \
   'SELFHOST_ANDROID_CERT_SHA256: 903bf29bdf76ec24766e48eb8eafc0f0d228572be347008956b3f6aa63d753be' \
