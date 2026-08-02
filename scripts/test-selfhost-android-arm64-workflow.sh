@@ -26,6 +26,9 @@ for marker in \
   'release_version:' \
   'contents: read' \
   'aarch64-linux-android' \
+  'create("selfhostRelease")' \
+  'signingConfigs.getByName("selfhostRelease")' \
+  'missingDimensionStrategy("store", "foss")' \
   'pnpm tauri android build -t aarch64 --apk' \
   'arm64-v8a' \
   'SELFHOST_APP_IDENTIFIER: com.readest.selfhost' \

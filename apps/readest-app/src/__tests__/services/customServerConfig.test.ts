@@ -1,12 +1,7 @@
 import { beforeEach, describe, expect, test, vi } from 'vitest';
 
-const { isTauriAppPlatformMock, tauriFetchMock } = vi.hoisted(() => ({
-  isTauriAppPlatformMock: vi.fn(() => false),
+const { tauriFetchMock } = vi.hoisted(() => ({
   tauriFetchMock: vi.fn(),
-}));
-
-vi.mock('@/services/environment', () => ({
-  isTauriAppPlatform: isTauriAppPlatformMock,
 }));
 
 vi.mock('@tauri-apps/plugin-http', () => ({
@@ -100,9 +95,9 @@ const expectConfigError = (fn: () => unknown, code: string) => {
 describe('customServerConfig', () => {
   beforeEach(() => {
     vi.restoreAllMocks();
+    vi.unstubAllEnvs();
+    vi.stubEnv('NEXT_PUBLIC_APP_PLATFORM', 'web');
     clearAuthSessionForServerChangeMock.mockReset();
-    isTauriAppPlatformMock.mockReset();
-    isTauriAppPlatformMock.mockReturnValue(false);
     tauriFetchMock.mockReset();
     setCustomServerConfigStorageAdapter(null);
   });
@@ -254,7 +249,7 @@ describe('customServerConfig', () => {
     });
 
     test('uses Tauri native HTTP when no fetch implementation is injected', async () => {
-      isTauriAppPlatformMock.mockReturnValue(true);
+      vi.stubEnv('NEXT_PUBLIC_APP_PLATFORM', 'tauri');
       tauriFetchMock.mockResolvedValue(
         jsonResponse({
           apiBaseUrl: 'https://api.example.com',
@@ -406,6 +401,41 @@ describe('customServerConfig', () => {
         expect.any(String),
         expect.objectContaining({ signal: expect.any(AbortSignal) }),
       );
+    });
+
+    test('keeps the discovery timeout active while reading the response body', async () => {
+      let abortedBodies = 0;
+      const fetchImpl = vi.fn((_input: RequestInfo | URL, init?: RequestInit) =>
+        Promise.resolve({
+          ok: true,
+          status: 200,
+          headers: new Headers(),
+          text: () =>
+            new Promise<string>((_resolve, reject) => {
+              const fallback = setTimeout(
+                () => reject(new Error('response body was not aborted')),
+                20,
+              );
+              init?.signal?.addEventListener(
+                'abort',
+                () => {
+                  abortedBodies += 1;
+                  clearTimeout(fallback);
+                  reject(new DOMException('Aborted', 'AbortError'));
+                },
+                { once: true },
+              );
+            }),
+        } as Response),
+      ) as unknown as typeof fetch;
+
+      await expect(
+        fetchPublicClientConfig('https://readest.example.com', {
+          fetchImpl,
+          timeoutMs: 1,
+        }),
+      ).rejects.toMatchObject({ code: 'manual-config-required' });
+      expect(abortedBodies).toBe(3);
     });
   });
 

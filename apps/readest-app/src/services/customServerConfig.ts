@@ -1,6 +1,5 @@
 import { fetch as tauriFetch } from '@tauri-apps/plugin-http';
 import { jwtDecode } from 'jwt-decode';
-import { isTauriAppPlatform } from './environment';
 
 export interface PublicReadestClientConfig {
   apiBaseUrl?: string | undefined;
@@ -111,6 +110,7 @@ export const setCustomServerConfigStorageAdapter = (adapter: StorageAdapter | nu
 };
 
 const isDevelopmentBuild = () => process.env['NODE_ENV'] === 'development';
+const isTauriClientBuild = () => process.env['NEXT_PUBLIC_APP_PLATFORM'] === 'tauri';
 
 const normalizeHostname = (hostname: string) => hostname.toLowerCase().replace(/^\[|\]$/g, '');
 
@@ -307,7 +307,7 @@ const validatePublicConfig = (
 
 export const getCustomServerFetch = (fetchImpl?: typeof fetch): typeof fetch => {
   if (fetchImpl) return fetchImpl;
-  if (isTauriAppPlatform()) return tauriFetch as unknown as typeof fetch;
+  if (isTauriClientBuild()) return tauriFetch as unknown as typeof fetch;
   if (!globalThis.fetch) {
     throw new CustomServerConfigError('server-not-reachable', 'Fetch API is not available.');
   }
@@ -345,16 +345,44 @@ const fetchConfigSource = async (
     options.timeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS,
   );
 
-  let response: Response;
   try {
-    response = await fetchImpl(url, {
+    const response = await fetchImpl(url, {
       method: 'GET',
       headers: {
         Accept: format === 'json' ? 'application/json' : 'application/javascript, text/javascript',
       },
       signal: controller.signal,
     });
+
+    if (!response.ok) {
+      throw new CustomServerConfigError(
+        'server-not-reachable',
+        `Server config endpoint returned HTTP ${response.status}.`,
+      );
+    }
+
+    const maxResponseBytes = options.maxResponseBytes ?? DEFAULT_MAX_RESPONSE_BYTES;
+    const contentLength = Number(response.headers.get('Content-Length'));
+    if (Number.isFinite(contentLength) && contentLength > maxResponseBytes) {
+      throw new CustomServerConfigError('invalid-config', 'Server config response is too large.');
+    }
+
+    const source = await response.text();
+    if (new TextEncoder().encode(source).byteLength > maxResponseBytes) {
+      throw new CustomServerConfigError('invalid-config', 'Server config response is too large.');
+    }
+
+    if (format === 'script') return parseRuntimeConfigScript(source);
+    try {
+      return JSON.parse(source) as unknown;
+    } catch {
+      throw new CustomServerConfigError(
+        'invalid-config',
+        'Server config response is not valid JSON.',
+      );
+    }
   } catch (error) {
+    if (error instanceof CustomServerConfigError) throw error;
     if (controller.signal.aborted) {
       throw new CustomServerConfigError('request-timeout', 'Server config request timed out.');
     }
@@ -365,34 +393,6 @@ const fetchConfigSource = async (
     throw new CustomServerConfigError('server-not-reachable', 'Server config request failed.');
   } finally {
     clearTimeout(timeout);
-  }
-
-  if (!response.ok) {
-    throw new CustomServerConfigError(
-      'server-not-reachable',
-      `Server config endpoint returned HTTP ${response.status}.`,
-    );
-  }
-
-  const maxResponseBytes = options.maxResponseBytes ?? DEFAULT_MAX_RESPONSE_BYTES;
-  const contentLength = Number(response.headers.get('Content-Length'));
-  if (Number.isFinite(contentLength) && contentLength > maxResponseBytes) {
-    throw new CustomServerConfigError('invalid-config', 'Server config response is too large.');
-  }
-
-  const source = await response.text();
-  if (new TextEncoder().encode(source).byteLength > maxResponseBytes) {
-    throw new CustomServerConfigError('invalid-config', 'Server config response is too large.');
-  }
-
-  if (format === 'script') return parseRuntimeConfigScript(source);
-  try {
-    return JSON.parse(source) as unknown;
-  } catch {
-    throw new CustomServerConfigError(
-      'invalid-config',
-      'Server config response is not valid JSON.',
-    );
   }
 };
 

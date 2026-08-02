@@ -7,12 +7,14 @@ const {
   loadCustomServerConfigMock,
   resolveCustomServerConfigMock,
   saveCustomServerConfigMock,
+  isTauriAppPlatformMock,
 } = vi.hoisted(() => ({
   clearCustomServerConfigMock: vi.fn(),
   createManualCustomServerConfigMock: vi.fn(),
   loadCustomServerConfigMock: vi.fn(),
   resolveCustomServerConfigMock: vi.fn(),
   saveCustomServerConfigMock: vi.fn(),
+  isTauriAppPlatformMock: vi.fn(() => true),
 }));
 
 vi.mock('@/hooks/useTranslation', () => ({
@@ -20,7 +22,7 @@ vi.mock('@/hooks/useTranslation', () => ({
 }));
 
 vi.mock('@/services/environment', () => ({
-  isTauriAppPlatform: () => true,
+  isTauriAppPlatform: isTauriAppPlatformMock,
 }));
 
 vi.mock('@/services/customServerConfig', async () => {
@@ -51,6 +53,8 @@ const resolvedConfig = {
 };
 
 beforeEach(() => {
+  isTauriAppPlatformMock.mockReset();
+  isTauriAppPlatformMock.mockReturnValue(true);
   clearCustomServerConfigMock.mockReset();
   clearCustomServerConfigMock.mockResolvedValue(undefined);
   createManualCustomServerConfigMock.mockReset();
@@ -77,6 +81,15 @@ const openCompatibilityMode = () => {
 };
 
 describe('ServerSettingsPanel official Docker compatibility', () => {
+  test('does not expose custom-server controls in a web build', () => {
+    isTauriAppPlatformMock.mockReturnValue(false);
+
+    render(<ServerSettingsPanel />);
+
+    expect(screen.queryByLabelText('Server URL')).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Official Docker compatibility' })).toBeNull();
+  });
+
   test('expands and safely prefills compatibility fields when discovery is unavailable', async () => {
     resolveCustomServerConfigMock.mockRejectedValue(
       new CustomServerConfigError(

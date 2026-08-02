@@ -76,6 +76,7 @@ const getErrorMessage = (error: unknown, translate: (key: string) => string) => 
 
 const ServerSettingsPanel: React.FC<ServerSettingsPanelProps> = ({ compact = false }) => {
   const _ = useTranslation();
+  const isTauriPlatform = isTauriAppPlatform();
   const [serverUrl, setServerUrl] = useState('');
   const [apiBaseUrl, setApiBaseUrl] = useState('');
   const [supabaseUrl, setSupabaseUrl] = useState('');
@@ -88,13 +89,14 @@ const ServerSettingsPanel: React.FC<ServerSettingsPanelProps> = ({ compact = fal
   const [isResetting, setIsResetting] = useState(false);
 
   useEffect(() => {
+    if (!isTauriPlatform) return;
     const config = loadCustomServerConfig();
     setSavedConfig(config);
     setServerUrl(config?.serverBaseUrl ?? '');
     setApiBaseUrl(config?.apiBaseUrl ?? '');
     setSupabaseUrl(config?.supabaseUrl ?? '');
     setSupabaseAnonKey(config?.supabaseAnonKey ?? '');
-  }, []);
+  }, [isTauriPlatform]);
 
   const effectiveConfig = useMemo(() => {
     if (testState.status === 'success') return testState.config;
@@ -202,15 +204,28 @@ const ServerSettingsPanel: React.FC<ServerSettingsPanelProps> = ({ compact = fal
   const statusText =
     testState.message ?? (savedConfig ? _('Custom server enabled') : _('Default server'));
 
+  if (!isTauriPlatform) {
+    return (
+      <div className={clsx(compact ? 'w-full' : 'my-4 w-full space-y-6')}>
+        <BoxedList
+          title={_('Server Settings')}
+          description={_('Custom servers are available in the desktop and mobile app.')}
+          data-setting-id='settings.server'
+        >
+          <SettingsRow
+            label={_('Custom server')}
+            description={_('Open Readest on a desktop or mobile device to change servers.')}
+          />
+        </BoxedList>
+      </div>
+    );
+  }
+
   return (
     <div className={clsx(compact ? 'w-full' : 'my-4 w-full space-y-6')}>
       <BoxedList
         title={_('Server Settings')}
-        description={
-          isTauriAppPlatform()
-            ? _('Changing servers signs you out so sessions cannot cross servers.')
-            : _('Custom servers are available in the desktop and mobile app.')
-        }
+        description={_('Changing servers signs you out so sessions cannot cross servers.')}
         data-setting-id='settings.server'
       >
         <SettingsRow
