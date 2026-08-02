@@ -39,7 +39,7 @@
 - Produces: `getCustomServerFetch(fetchImpl?: typeof fetch): typeof fetch`, `parseRuntimeConfigScript(source: string): unknown`, and enhanced `fetchPublicClientConfig(serverBaseUrlInput, options): Promise<PublicReadestClientConfig>`.
 - Produces error metadata through `new CustomServerConfigError(code, message, suggestedConfig?)`, where `suggestedConfig?: PublicReadestClientConfig` is used only for safe manual prefilling.
 
-- [ ] **Step 1: Add failing tests for transport selection and discovery priority**
+- [x] **Step 1: Add failing tests for transport selection and discovery priority**
 
 Mock `@tauri-apps/plugin-http` and `@/services/environment`, then add tests that assert an injected fetch wins, Tauri selects the native fetch, web selects `globalThis.fetch`, and the third request is `/runtime-config.js` after the two JSON endpoints fail. Use a valid JWT anon key generated in the test:
 
@@ -71,7 +71,7 @@ test('discovers runtime-config.js after both JSON endpoints fail', async () => {
 });
 ```
 
-- [ ] **Step 2: Run Task 1 discovery tests and verify RED**
+- [x] **Step 2: Run Task 1 discovery tests and verify RED**
 
 Run:
 
@@ -82,7 +82,7 @@ pnpm exec vitest run src/__tests__/services/customServerConfig.test.ts --reporte
 
 Expected: FAIL because `getCustomServerFetch`, `/runtime-config.js`, and `parseRuntimeConfigScript` do not exist.
 
-- [ ] **Step 3: Add failing parser, response-bound, timeout, and key-shape tests**
+- [x] **Step 3: Add failing parser, response-bound, timeout, and key-shape tests**
 
 Add separate tests that accept whitespace around the fixed assignment, reject a second statement or non-object JSON, reject a response above `maxResponseBytes`, map an aborted request to `manual-config-required`, accept `anonJwt` and `sb_publishable_example_public_key_123456`, and reject `service_role` JWT, `sb_secret_example`, and malformed text.
 
@@ -97,13 +97,13 @@ expect(() =>
 ).toThrowError(CustomServerConfigError);
 ```
 
-- [ ] **Step 4: Run the expanded tests and verify RED**
+- [x] **Step 4: Run the expanded tests and verify RED**
 
 Run the Task 1 command again.
 
 Expected: FAIL on strict parsing, bounded reads, timeout classification, and key validation.
 
-- [ ] **Step 5: Implement the minimal bounded native discovery path**
+- [x] **Step 5: Implement the minimal bounded native discovery path**
 
 Add the native imports, limits, transport selector, strict parser, bounded request helper, key validation, and third discovery source:
 
@@ -142,13 +142,13 @@ export const parseRuntimeConfigScript = (source: string): unknown => {
 
 Extend `ResolveCustomServerConfigOptions` with `timeoutMs?: number` and `maxResponseBytes?: number`. Use an `AbortController`, clear its timer in `finally`, read `Response.text()`, enforce both `Content-Length` and encoded body size, and call `JSON.parse` for the JSON endpoints. Validate key shape before returning a config. Swallow absent/unreachable/structurally invalid sources, preserve only safe partial fields for the manual form, and immediately rethrow `dangerous-secret`.
 
-- [ ] **Step 6: Run Task 1 tests and verify GREEN**
+- [x] **Step 6: Run Task 1 tests and verify GREEN**
 
 Run the Task 1 command.
 
 Expected: all discovery, parser, bounds, timeout, and key tests PASS with no warnings.
 
-- [ ] **Step 7: Commit Task 1**
+- [x] **Step 7: Commit Task 1**
 
 ```bash
 git add apps/readest-app/src/services/customServerConfig.ts apps/readest-app/src/__tests__/services/customServerConfig.test.ts

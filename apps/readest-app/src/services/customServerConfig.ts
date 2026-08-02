@@ -1,3 +1,7 @@
+import { fetch as tauriFetch } from '@tauri-apps/plugin-http';
+import { jwtDecode } from 'jwt-decode';
+import { isTauriAppPlatform } from './environment';
+
 export interface PublicReadestClientConfig {
   apiBaseUrl?: string | undefined;
   supabaseUrl?: string | undefined;
@@ -27,15 +31,26 @@ export type CustomServerConfigErrorCode =
   | 'server-not-reachable'
   | 'invalid-config'
   | 'missing-supabase-config'
-  | 'dangerous-secret';
+  | 'dangerous-secret'
+  | 'manual-config-required'
+  | 'request-timeout'
+  | 'tls-error'
+  | 'api-unreachable'
+  | 'supabase-unreachable';
 
 export class CustomServerConfigError extends Error {
   code: CustomServerConfigErrorCode;
+  suggestedConfig?: PublicReadestClientConfig | undefined;
 
-  constructor(code: CustomServerConfigErrorCode, message: string) {
+  constructor(
+    code: CustomServerConfigErrorCode,
+    message: string,
+    suggestedConfig?: PublicReadestClientConfig,
+  ) {
     super(message);
     this.name = 'CustomServerConfigError';
     this.code = code;
+    this.suggestedConfig = suggestedConfig;
   }
 }
 
@@ -47,6 +62,8 @@ interface ResolveCustomServerConfigOptions extends NormalizeUrlOptions {
   fetchImpl?: typeof fetch;
   requireSupabase?: boolean;
   now?: () => number;
+  timeoutMs?: number;
+  maxResponseBytes?: number;
 }
 
 interface SaveCustomServerConfigOptions {
@@ -55,10 +72,14 @@ interface SaveCustomServerConfigOptions {
 
 const CUSTOM_SERVER_CONFIG_KEY = 'readest_custom_server_config_v1';
 
-const PUBLIC_CONFIG_PATHS = [
-  '/.well-known/readest-client-config.json',
-  '/api/public/runtime-config',
+const PUBLIC_CONFIG_SOURCES = [
+  { path: '/.well-known/readest-client-config.json', format: 'json' },
+  { path: '/api/public/runtime-config', format: 'json' },
+  { path: '/runtime-config.js', format: 'script' },
 ] as const;
+
+const DEFAULT_REQUEST_TIMEOUT_MS = 8_000;
+const DEFAULT_MAX_RESPONSE_BYTES = 64 * 1024;
 
 const DANGEROUS_SECRET_FIELDS = [
   'service_role',
@@ -200,6 +221,35 @@ const assertNoDangerousSecrets = (config: unknown) => {
   }
 };
 
+const validateSupabasePublicKey = (key: string) => {
+  if (key.startsWith('sb_secret_')) {
+    throw new CustomServerConfigError(
+      'dangerous-secret',
+      'Supabase server secret keys must not be used in the client.',
+    );
+  }
+
+  if (/^sb_publishable_[A-Za-z0-9_-]{8,}$/.test(key)) return;
+
+  try {
+    const payload = jwtDecode<{ role?: unknown }>(key);
+    if (payload.role === 'service_role') {
+      throw new CustomServerConfigError(
+        'dangerous-secret',
+        'Supabase service-role keys must not be used in the client.',
+      );
+    }
+    if (payload.role === 'anon') return;
+  } catch (error) {
+    if (error instanceof CustomServerConfigError) throw error;
+  }
+
+  throw new CustomServerConfigError(
+    'invalid-config',
+    'Supabase public key must be an anon JWT or publishable key.',
+  );
+};
+
 const validatePublicConfig = (
   serverBaseUrl: string,
   config: unknown,
@@ -232,6 +282,8 @@ const validatePublicConfig = (
       ? supabaseAnonKeyValue.trim()
       : undefined;
 
+  if (supabaseAnonKey) validateSupabasePublicKey(supabaseAnonKey);
+
   if (requireSupabase && (!supabaseUrl || !supabaseAnonKey)) {
     throw new CustomServerConfigError(
       'missing-supabase-config',
@@ -246,57 +298,142 @@ const validatePublicConfig = (
   };
 };
 
-const fetchJsonConfig = async (url: string, fetchImpl: typeof fetch) => {
-  const response = await fetchImpl(url, {
-    method: 'GET',
-    headers: {
-      Accept: 'application/json',
-    },
-  });
+export const getCustomServerFetch = (fetchImpl?: typeof fetch): typeof fetch => {
+  if (fetchImpl) return fetchImpl;
+  if (isTauriAppPlatform()) return tauriFetch as unknown as typeof fetch;
+  if (!globalThis.fetch) {
+    throw new CustomServerConfigError('server-not-reachable', 'Fetch API is not available.');
+  }
+  return globalThis.fetch.bind(globalThis);
+};
+
+export const parseRuntimeConfigScript = (source: string): unknown => {
+  const match = source.match(/^\s*window\.__READEST_RUNTIME_CONFIG\s*=\s*(\{[\s\S]*\})\s*;\s*$/);
+  if (!match?.[1]) {
+    throw new CustomServerConfigError(
+      'invalid-config',
+      'Runtime config script has an invalid envelope.',
+    );
+  }
+
+  try {
+    return JSON.parse(match[1]) as unknown;
+  } catch {
+    throw new CustomServerConfigError(
+      'invalid-config',
+      'Runtime config script contains invalid JSON.',
+    );
+  }
+};
+
+const fetchConfigSource = async (
+  url: string,
+  format: (typeof PUBLIC_CONFIG_SOURCES)[number]['format'],
+  fetchImpl: typeof fetch,
+  options: ResolveCustomServerConfigOptions,
+) => {
+  const controller = new AbortController();
+  const timeout = setTimeout(
+    () => controller.abort(),
+    options.timeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS,
+  );
+
+  let response: Response;
+  try {
+    response = await fetchImpl(url, {
+      method: 'GET',
+      headers: {
+        Accept: format === 'json' ? 'application/json' : 'application/javascript, text/javascript',
+      },
+      signal: controller.signal,
+    });
+  } catch (error) {
+    if (controller.signal.aborted) {
+      throw new CustomServerConfigError('request-timeout', 'Server config request timed out.');
+    }
+    const message = error instanceof Error ? error.message : String(error);
+    if (/certificate|\btls\b|\bssl\b/i.test(message)) {
+      throw new CustomServerConfigError('tls-error', 'Server config TLS connection failed.');
+    }
+    throw new CustomServerConfigError('server-not-reachable', 'Server config request failed.');
+  } finally {
+    clearTimeout(timeout);
+  }
+
   if (!response.ok) {
     throw new CustomServerConfigError(
       'server-not-reachable',
       `Server config endpoint returned HTTP ${response.status}.`,
     );
   }
-  return response.json() as Promise<unknown>;
+
+  const maxResponseBytes = options.maxResponseBytes ?? DEFAULT_MAX_RESPONSE_BYTES;
+  const contentLength = Number(response.headers.get('Content-Length'));
+  if (Number.isFinite(contentLength) && contentLength > maxResponseBytes) {
+    throw new CustomServerConfigError('invalid-config', 'Server config response is too large.');
+  }
+
+  const source = await response.text();
+  if (new TextEncoder().encode(source).byteLength > maxResponseBytes) {
+    throw new CustomServerConfigError('invalid-config', 'Server config response is too large.');
+  }
+
+  if (format === 'script') return parseRuntimeConfigScript(source);
+  try {
+    return JSON.parse(source) as unknown;
+  } catch {
+    throw new CustomServerConfigError(
+      'invalid-config',
+      'Server config response is not valid JSON.',
+    );
+  }
 };
+
+const mergeSuggestedConfig = (
+  previous: PublicReadestClientConfig,
+  next: PublicReadestClientConfig,
+): PublicReadestClientConfig => ({
+  apiBaseUrl: next.apiBaseUrl ?? previous.apiBaseUrl,
+  supabaseUrl: next.supabaseUrl ?? previous.supabaseUrl,
+  supabaseAnonKey: next.supabaseAnonKey ?? previous.supabaseAnonKey,
+});
 
 export const fetchPublicClientConfig = async (
   serverBaseUrlInput: string,
   options: ResolveCustomServerConfigOptions = {},
 ) => {
   const serverBaseUrl = normalizeServerBaseUrl(serverBaseUrlInput, options);
-  const fetchImpl = options.fetchImpl ?? globalThis.fetch;
-  if (!fetchImpl) {
-    throw new CustomServerConfigError('server-not-reachable', 'Fetch API is not available.');
-  }
+  const fetchImpl = getCustomServerFetch(options.fetchImpl);
 
-  let lastError: unknown;
-  for (const path of PUBLIC_CONFIG_PATHS) {
+  let suggestedConfig: PublicReadestClientConfig = {};
+  let hasSuggestedConfig = false;
+  for (const source of PUBLIC_CONFIG_SOURCES) {
     try {
-      const config = await fetchJsonConfig(joinUrlPath(serverBaseUrl, path), fetchImpl);
+      const config = await fetchConfigSource(
+        joinUrlPath(serverBaseUrl, source.path),
+        source.format,
+        fetchImpl,
+        options,
+      );
+      const partialConfig = validatePublicConfig(serverBaseUrl, config, {
+        ...options,
+        requireSupabase: false,
+      });
+      suggestedConfig = mergeSuggestedConfig(suggestedConfig, partialConfig);
+      hasSuggestedConfig = true;
+      if (options.requireSupabase === false) return partialConfig;
       return validatePublicConfig(serverBaseUrl, config, options);
     } catch (error) {
-      if (
-        error instanceof CustomServerConfigError &&
-        (error.code === 'dangerous-secret' ||
-          error.code === 'missing-supabase-config' ||
-          error.code === 'invalid-url' ||
-          error.code === 'insecure-http')
-      ) {
+      if (error instanceof CustomServerConfigError && error.code === 'dangerous-secret') {
         throw error;
       }
-      lastError = error;
     }
   }
 
-  if (lastError instanceof CustomServerConfigError) {
-    throw lastError;
-  }
   throw new CustomServerConfigError(
-    'server-not-reachable',
-    'Server config endpoints are not reachable.',
+    'manual-config-required',
+    'Public client config is not discoverable.',
+    hasSuggestedConfig ? suggestedConfig : undefined,
   );
 };
 
