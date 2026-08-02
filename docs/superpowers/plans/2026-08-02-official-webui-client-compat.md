@@ -282,7 +282,7 @@ git commit -m "feat: validate official Docker compatibility config"
 - Consumes: `CustomServerConfigError.suggestedConfig`, `createManualCustomServerConfig`, existing discovery/save/load/reset services.
 - Produces: accessible inputs named `Server URL`, `API base URL`, `Supabase public URL`, and `Supabase anon or publishable key`; an `Official Docker compatibility` disclosure; automatic expansion on `manual-config-required`.
 
-- [ ] **Step 1: Add failing component tests for automatic expansion and safe prefilling**
+- [x] **Step 1: Add failing component tests for automatic expansion and safe prefilling**
 
 Mock translation as identity, mock Tauri platform true, partially mock the config service, render the panel, enter a server URL, and make `resolveCustomServerConfig` reject:
 
@@ -299,7 +299,7 @@ new CustomServerConfigError(
 
 Assert that the three compatibility fields appear, the server/API/Supabase URL values are prefilled, and the key input has `type="password"`.
 
-- [ ] **Step 2: Run the new component test and verify RED**
+- [x] **Step 2: Run the new component test and verify RED**
 
 Run:
 
@@ -310,17 +310,17 @@ pnpm exec vitest run src/__tests__/components/ServerSettingsPanel.test.tsx --rep
 
 Expected: FAIL because the compatibility disclosure and fields do not exist.
 
-- [ ] **Step 3: Add failing save, reset, and input-preservation component tests**
+- [x] **Step 3: Add failing save, reset, and input-preservation component tests**
 
 Test that Save calls `createManualCustomServerConfig` with all four current values and then calls `saveCustomServerConfig(config, { resetSession: true })` with the returned config. Make manual validation reject once and assert every input retains its value. Test that Reset clears and collapses compatibility mode. Test that the disclosure can be opened before a failed discovery attempt.
 
-- [ ] **Step 4: Run component tests and verify RED**
+- [x] **Step 4: Run component tests and verify RED**
 
 Run the Task 3 command.
 
 Expected: FAIL on manual save, reset/collapse, explicit opening, and preservation.
 
-- [ ] **Step 5: Implement the minimal compatibility UI**
+- [x] **Step 5: Implement the minimal compatibility UI**
 
 Add state for `compatibilityExpanded`, `apiBaseUrl`, `supabaseUrl`, and `supabaseAnonKey`. On mount, prefill them from a saved config but keep the disclosure collapsed. On automatic discovery failure with `manual-config-required`, retain the normalized entered server, fill only safe blank fields from `error.suggestedConfig`, expand the disclosure, and show `Public client config was not found. Enter the official Docker public settings below.`
 
@@ -328,7 +328,7 @@ Render the compatibility fields as `SettingsRow` inputs with `aria-label`, `inpu
 
 Map error codes to specific user-facing English keys: `Request timed out`, `TLS connection failed`, `Readest API is not reachable`, `Supabase is not reachable`, `Invalid public client config`, and the existing URL/secret messages. Translation keys use the repository's English-key-as-content fallback and no private values.
 
-- [ ] **Step 6: Run component and service tests and verify GREEN**
+- [x] **Step 6: Run component and service tests and verify GREEN**
 
 Run:
 
@@ -339,7 +339,7 @@ pnpm exec vitest run src/__tests__/components/ServerSettingsPanel.test.tsx src/_
 
 Expected: both files PASS with no React act warnings.
 
-- [ ] **Step 7: Commit Task 3**
+- [x] **Step 7: Commit Task 3**
 
 ```bash
 git add apps/readest-app/src/components/settings/ServerSettingsPanel.tsx apps/readest-app/src/__tests__/components/ServerSettingsPanel.test.tsx
