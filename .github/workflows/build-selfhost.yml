@@ -35,6 +35,8 @@ permissions:
 env:
   SELFHOST_PRODUCT_NAME: Readest Selfhost
   SELFHOST_APP_IDENTIFIER: com.readest.selfhost
+  # Public certificate digest already deployed in the selfhost-v0.11.2 APKs.
+  SELFHOST_ANDROID_CERT_SHA256: 903bf29bdf76ec24766e48eb8eafc0f0d228572be347008956b3f6aa63d753be
   TAURI_UPDATER_ENDPOINT: https://github.com/${{ github.repository }}/releases/latest/download/latest.json
   SELFHOST_RELEASE_VERSION: ${{ inputs.release_version }}
   NODE_OPTIONS: --max-old-space-size=8192
@@ -728,7 +730,7 @@ jobs:
             exit 1
           fi
           export PATH="$build_tools:$PATH"
-          expected_certificate_digest=$(
+          keystore_certificate_digest=$(
             keytool -exportcert \
               -alias "$ANDROID_KEY_ALIAS" \
               -keystore "$ANDROID_KEYSTORE_PATH" \
@@ -736,8 +738,12 @@ jobs:
               sha256sum |
               awk '{print $1}'
           )
-          if [ -z "$expected_certificate_digest" ]; then
+          if [ -z "$keystore_certificate_digest" ]; then
             echo "::error::Unable to derive the Android keystore certificate digest"
+            exit 1
+          fi
+          if [ "$keystore_certificate_digest" != "$SELFHOST_ANDROID_CERT_SHA256" ]; then
+            echo "::error::Android keystore certificate does not match the pinned selfhost certificate"
             exit 1
           fi
 
@@ -748,7 +754,7 @@ jobs:
                 head -n 1 |
                 tr 'A-F' 'a-f'
             )
-            if [ "$certificate_digest" != "$expected_certificate_digest" ]; then
+            if [ "$certificate_digest" != "$SELFHOST_ANDROID_CERT_SHA256" ]; then
               echo "::error::Unexpected Android signing certificate for ${apk}"
               exit 1
             fi

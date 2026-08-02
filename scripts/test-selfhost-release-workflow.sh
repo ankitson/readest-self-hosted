@@ -36,6 +36,8 @@ for marker in \
   'apksigner verify --verbose --print-certs' \
   'keytool -exportcert' \
   'aapt dump badging' \
+  'SELFHOST_ANDROID_CERT_SHA256: 903bf29bdf76ec24766e48eb8eafc0f0d228572be347008956b3f6aa63d753be' \
+  'Android keystore certificate does not match the pinned selfhost certificate' \
   'Unexpected Android universal ABI set' \
   'Unexpected Android package identifier' \
   'Unexpected Android version' \
