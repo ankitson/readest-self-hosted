@@ -681,7 +681,6 @@ jobs:
             echo "::error::Unexpected Android universal ABI set: ${universal_abis[*]:-none}"
             exit 1
           fi
-          pnpm tauri signer sign "$universal_asset"
 
           pnpm tauri android build --split-per-abi --apk
           declare -A abi_to_asset=(
@@ -708,7 +707,6 @@ jobs:
             fi
             asset="${output_dir}/Readest-Selfhost_${version}_${asset_arch}.apk"
             cp "$apk" "$asset"
-            pnpm tauri signer sign "$asset"
             found_assets["$asset_arch"]=1
           done
           for required_asset in arm64 armv7 x64 x86; do
@@ -748,6 +746,17 @@ jobs:
           fi
 
           for apk in "${final_apks[@]}"; do
+            signed_apk="${apk}.signed"
+            rm -f "$signed_apk"
+            apksigner sign \
+              --ks "$ANDROID_KEYSTORE_PATH" \
+              --ks-key-alias "$ANDROID_KEY_ALIAS" \
+              --ks-pass env:ANDROID_KEYSTORE_PASSWORD \
+              --key-pass env:ANDROID_KEY_PASSWORD \
+              --out "$signed_apk" \
+              "$apk"
+            mv "$signed_apk" "$apk"
+
             verification=$(apksigner verify --verbose --print-certs "$apk")
             certificate_digest=$(
               sed -n 's/^Signer #1 certificate SHA-256 digest: //p' <<< "$verification" |
@@ -770,6 +779,8 @@ jobs:
               echo "::error::Unexpected Android version for ${apk}: ${package_version}"
               exit 1
             fi
+
+            pnpm tauri signer sign "$apk"
           done
 
       - name: Upload Android artifacts

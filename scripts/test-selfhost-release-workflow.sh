@@ -17,6 +17,8 @@ require_marker() {
   fi
 }
 
+# These markers intentionally contain literal shell variable references.
+# shellcheck disable=SC2016
 for marker in \
   'fail-fast: false' \
   'windows-latest' \
@@ -33,6 +35,11 @@ for marker in \
   'pnpm tauri android build --apk' \
   'pnpm tauri android build --split-per-abi --apk' \
   'Duplicate Android APKs for ABI' \
+  'apksigner sign' \
+  '--ks "$ANDROID_KEYSTORE_PATH"' \
+  '--ks-key-alias "$ANDROID_KEY_ALIAS"' \
+  '--ks-pass env:ANDROID_KEYSTORE_PASSWORD' \
+  '--key-pass env:ANDROID_KEY_PASSWORD' \
   'apksigner verify --verbose --print-certs' \
   'keytool -exportcert' \
   'aapt dump badging' \
@@ -80,6 +87,23 @@ if 'TAURI_UPDATER_PUBKEY' not in block:
     raise SystemExit('Android project initialization is missing the public updater key')
 if '      - name: Decode Android keystore' not in text:
     raise SystemExit('Android keystore does not have a dedicated decode step')
+PY
+
+python3 - <<'PY'
+from pathlib import Path
+
+text = Path('.github/workflows/build-selfhost.yml').read_text()
+start = text.index('      - name: Build Android universal and split APKs')
+end = text.index('      - name: Upload Android artifacts', start)
+block = text[start:end]
+
+android_sign = block.index('apksigner sign')
+android_verify = block.index('apksigner verify --verbose --print-certs')
+updater_sign = block.index('pnpm tauri signer sign "$apk"')
+if not android_sign < android_verify < updater_sign:
+    raise SystemExit('Final APKs must be Android-signed and verified before updater signatures are generated')
+if 'pnpm tauri signer sign "$universal_asset"' in block or 'pnpm tauri signer sign "$asset"' in block:
+    raise SystemExit('Updater signatures are generated before the final Android APK bytes are available')
 PY
 
 for forbidden_apple_secret in \
