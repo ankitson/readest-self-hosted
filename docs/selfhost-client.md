@@ -20,21 +20,33 @@ The client normalizes the URL before saving it:
 - production builds require `https`
 - development builds may use `http` for localhost, loopback, or local network testing
 
-## Public Runtime Config Endpoint
+## Public Runtime Config Discovery
 
-A self-hosted server should expose one of these public endpoints:
+The native client tries these public sources in order:
 
 ```text
 GET /.well-known/readest-client-config.json
 ```
 
-or:
+then:
 
 ```text
 GET /api/public/runtime-config
 ```
 
-The `.well-known` endpoint is tried first. If that request fails, the client tries `/api/public/runtime-config`.
+and finally:
+
+```text
+GET /runtime-config.js
+```
+
+The first two sources must return a JSON object. The script source is accepted only when its complete body is one assignment in this form:
+
+```javascript
+window.__READEST_RUNTIME_CONFIG = {"apiBaseUrl":"https://your-readest-server.example.com"};
+```
+
+The client extracts and parses the JSON object. It never executes the remote script, scans application bundles, or imports a WebUI browser session. Discovery uses Tauri native HTTP in desktop and mobile builds, with an 8-second timeout and a 64 KiB response limit.
 
 Example response:
 
@@ -42,7 +54,7 @@ Example response:
 {
   "apiBaseUrl": "https://your-readest-server.example.com",
   "supabaseUrl": "https://your-supabase-public.example.com",
-  "supabaseAnonKey": "your-public-anon-key"
+  "supabaseAnonKey": "your-public-anon-jwt-or-publishable-key"
 }
 ```
 
@@ -50,7 +62,7 @@ Fields:
 
 - `apiBaseUrl`: public base URL for Readest API requests. If omitted, the entered server base URL is used.
 - `supabaseUrl`: public Supabase project URL used by the client for authentication and sync.
-- `supabaseAnonKey`: Supabase public anon key. This is not the service role key.
+- `supabaseAnonKey`: a legacy Supabase JWT with role `anon`, or a public key whose prefix is `sb_publishable_`.
 
 Current Readest authentication and sync flows require Supabase client config, so `supabaseUrl` and `supabaseAnonKey` must be present for a saved custom server.
 
@@ -71,15 +83,26 @@ Never return server-side secrets from this endpoint, including:
 
 The client rejects runtime config responses that contain common dangerous secret field names.
 
-## Manual Configuration
+## Official Docker Compatibility Mode
 
-The recommended setup is to expose one of the public runtime config endpoints and ask users to enter only the server base URL.
+Official Docker Compose WebUI deployments may serve the Readest UI and API without exposing any discovery source. In this case the client automatically expands **Official Docker compatibility** after a failed discovery attempt. The same section can be opened explicitly from Settings -> Server before testing.
 
-If a deployment cannot expose that endpoint, an advanced manual mode may be added later for entering `apiBaseUrl`, `supabaseUrl`, and `supabaseAnonKey` directly. The default client flow intentionally avoids asking users to handle multiple backend values.
+Enter these public client values once:
+
+- **Server URL**: the WebUI URL entered in the normal server field.
+- **API base URL**: optional; leave it equal to the server URL unless the Readest API is published on a different origin.
+- **Supabase public URL**: the public Supabase gateway URL used by the deployed WebUI.
+- **Supabase anon or publishable key**: the deployment's browser-safe `anon` JWT or `sb_publishable_` key.
+
+These values are normally available in the deployment's environment file or public WebUI configuration. Do not enter a `service_role` JWT, an `sb_secret_` key, a JWT signing secret, a database password, or another server-side value. The client rejects these values and masks the public key field on screen by default.
+
+**Test connection** and **Save** independently check `${apiBaseUrl}/api/sync` and `${supabaseUrl}/auth/v1/settings`. HTTP 401 or 403 from the Readest API proves the API is reachable; it is not reported as a network error. The Supabase request includes the public key. Timeout, TLS, Readest API, Supabase, URL, incomplete-config, and rejected-secret errors are reported separately, and failed validation does not clear the form.
+
+Username and password are intentionally not accepted in this compatibility form. After the public config is saved, sign in through the normal Readest login screen. The existing credentials are then sent directly to that configured Supabase Auth service, so the account and library remain the same without copying cookies or local storage from the WebUI.
 
 ## Session Handling
 
-When the saved server changes, the client clears local authentication session data and requires the user to sign in again. This prevents a session from one server from being reused against another server.
+When the effective server, API, Supabase URL, or Supabase public key changes, the client clears local authentication session data and requires the user to sign in again. Saving an equivalent normalized config does not sign the user out. Resetting an active custom server also clears its session.
 
 ## Public Fork Boundary
 
@@ -108,14 +131,9 @@ For Android, base64-encode the keystore file and store that encoded value in `AN
 
 ## Releasing a Self-host Client
 
-Use one of the self-host tag patterns:
+Stable selfhost releases use tags such as `selfhost-v0.11.20`. The release workflow builds and audits the complete configured Windows, Linux, macOS, and Android matrix before publishing an immutable GitHub Release and updater `latest.json`.
 
-```text
-v0.11.4-selfhost
-selfhost-v0.11.4
-```
-
-Pushing one of those tags triggers the self-host build and release workflows. The release uploads the Windows x64 installer, Android APK, updater signatures, and `latest.json`.
+The `0.11.21-selfhost.1` compatibility build uses a staged exception: the first workflow run builds only a signed Android arm64 APK and keeps it as a 14-day GitHub Actions artifact for real-device validation. It does not create or modify a public Release. The complete affected matrix and stable/latest Release are built only after that APK is confirmed on a real device.
 
 The default updater URL points at this fork's public GitHub Release metadata:
 
@@ -127,8 +145,6 @@ Android APKs are published by the workflow. Platform-level automatic app update 
 
 ## Syncing Upstream
 
-The `sync-upstream.yml` workflow rebases `selfhost-main` on `readest/readest` `main`.
+The `sync-upstream.yml` workflow watches strict stable upstream tags and selects the newest stable version. It does not continuously follow `upstream/main` or prerelease tags.
 
-If the rebase has conflicts, the workflow fails and leaves the fork unchanged. Resolve the conflict locally on `selfhost-main`, run the focused self-host tests and safety scan, then push the resolved branch.
-
-The workflow intentionally uses `git rebase upstream/main`; it does not force-overwrite downstream changes.
+For a new stable tag, the workflow replays the selfhost commit stack onto that tagged upstream commit, runs the client, Lua, release-contract, and safety checks, then atomically updates `main`, `selfhost-main`, and the matching selfhost tag. If rebase or validation fails, the published branches remain unchanged for manual resolution.

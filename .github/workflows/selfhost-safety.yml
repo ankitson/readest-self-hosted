@@ -30,5 +30,6 @@ jobs:
           bash scripts/test-sync-upstream-workflow.sh
           bash scripts/test-prepare-selfhost-release.sh
           bash scripts/test-selfhost-release-workflow.sh
+          bash scripts/test-selfhost-android-arm64-workflow.sh
       - name: Run public fork safety scan
         run: bash scripts/scan-public-fork-safety.sh

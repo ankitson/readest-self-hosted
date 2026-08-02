@@ -360,11 +360,11 @@ git commit -m "feat: add official Docker compatibility settings"
 - Consumes: existing Android signing secrets and pinned certificate digest.
 - Produces: manual `workflow_dispatch` input `release_version`, one `arm64-v8a` signed APK, `SHA256SUMS.txt`, `apk-audit.txt`, and Actions artifact `selfhost-android-arm64-<version>`.
 
-- [ ] **Step 1: Write the failing workflow contract test**
+- [x] **Step 1: Write the failing workflow contract test**
 
 Create an executable Bash test that requires the workflow file and exact markers for `aarch64-linux-android`, `pnpm tauri android build -t aarch64 --apk`, ABI assertion `arm64-v8a`, package `com.readest.selfhost`, version `0.11.21-selfhost.1`, version code `11021`, pinned certificate digest, `apksigner verify`, `aapt dump badging`, `actions/upload-artifact`, and `retention-days: 14`. It must fail if the workflow contains `matrix:`, `release create`, `gh release`, desktop targets, `armv7`, `i686`, `x86_64-linux-android`, or a `release:` trigger.
 
-- [ ] **Step 2: Run the workflow contract and verify RED**
+- [x] **Step 2: Run the workflow contract and verify RED**
 
 Run:
 
@@ -374,7 +374,7 @@ bash scripts/test-selfhost-android-arm64-workflow.sh
 
 Expected: FAIL because `.github/workflows/build-selfhost-android-arm64.yml` does not exist.
 
-- [ ] **Step 3: Create the arm64-only workflow and make the contract GREEN**
+- [x] **Step 3: Create the arm64-only workflow and make the contract GREEN**
 
 Create a workflow with `contents: read`, one Ubuntu job, pinned checkout/setup actions, frozen pnpm install, vendor setup, Rust `aarch64-linux-android`, release-version validation, existing Tauri selfhost patch, Android init and official icon generation, step-scoped signing secrets, and one build command:
 
@@ -388,15 +388,15 @@ Run the Task 4 contract again.
 
 Expected: PASS.
 
-- [ ] **Step 4: Add the contract to selfhost safety and public-fork scanning**
+- [x] **Step 4: Add the contract to selfhost safety and public-fork scanning**
 
 Add `bash scripts/test-selfhost-android-arm64-workflow.sh` to `.github/workflows/selfhost-safety.yml`. Add the new workflow and component test to the safety scanner's selfhost/URL scan paths so an environment-specific host cannot be committed.
 
-- [ ] **Step 5: Set the staged version and update public documentation**
+- [x] **Step 5: Set the staged version and update public documentation**
 
 Set `apps/readest-app/package.json` version to `0.11.21-selfhost.1`. Rewrite the manual-configuration section to document the three discovery sources, the fixed non-executed runtime assignment, the in-app official Docker form, accepted public key shapes, rejected server secrets, `/api/sync` and Supabase settings probes, unchanged username/password login, session behavior, and the arm64 validation-artifact stage. Correct the upstream-sync section to describe stable-tag synchronization rather than daily `upstream/main` rebases.
 
-- [ ] **Step 6: Run workflow, safety, and version checks**
+- [x] **Step 6: Run workflow, safety, and version checks**
 
 Run:
 
@@ -410,7 +410,7 @@ git diff --check
 
 Expected: every command exits 0; the safety scan reports PASS and no private host appears in `git diff`.
 
-- [ ] **Step 7: Commit Task 4**
+- [x] **Step 7: Commit Task 4**
 
 ```bash
 git add apps/readest-app/package.json docs/selfhost-client.md .github/workflows/build-selfhost-android-arm64.yml .github/workflows/selfhost-safety.yml scripts/test-selfhost-android-arm64-workflow.sh scripts/scan-public-fork-safety.sh

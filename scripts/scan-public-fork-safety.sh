@@ -69,6 +69,7 @@ selfhost_paths = [
     "apps/readest.koplugin/readest_selfupdate.lua",
     "docs/selfhost-client.md",
     ".github/workflows/build-selfhost.yml",
+    ".github/workflows/build-selfhost-android-arm64.yml",
     ".github/workflows/release-selfhost.yml",
     ".github/workflows/sync-upstream.yml",
     ".github/workflows/selfhost-safety.yml",
@@ -169,10 +170,13 @@ if not upload_r2_match or "if: github.repository == 'readest/readest'" not in up
 
 url_scan_paths = [
     "apps/readest-app/src/services/customServerConfig.ts",
+    "apps/readest-app/src/components/settings/ServerSettingsPanel.tsx",
     "apps/readest-app/src/__tests__/services/customServerConfig.test.ts",
+    "apps/readest-app/src/__tests__/components/ServerSettingsPanel.test.tsx",
     "apps/readest-app/scripts/patch-tauri-selfhost.mjs",
     "docs/selfhost-client.md",
     ".github/workflows/build-selfhost.yml",
+    ".github/workflows/build-selfhost-android-arm64.yml",
     ".github/workflows/release-selfhost.yml",
     ".github/workflows/sync-upstream.yml",
     ".github/workflows/selfhost-safety.yml",
@@ -223,6 +227,7 @@ dangerous_fields = re.compile(
 dangerous_scan_paths = [
     "apps/readest-app/scripts/patch-tauri-selfhost.mjs",
     ".github/workflows/build-selfhost.yml",
+    ".github/workflows/build-selfhost-android-arm64.yml",
     ".github/workflows/release-selfhost.yml",
     ".github/workflows/sync-upstream.yml",
     ".github/workflows/selfhost-safety.yml",

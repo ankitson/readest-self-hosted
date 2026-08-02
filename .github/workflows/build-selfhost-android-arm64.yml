@@ -1,0 +1,258 @@
+name: Build Selfhost Android arm64 Test
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_version:
+        description: Validation APK version
+        required: true
+        default: 0.11.21-selfhost.1
+        type: string
+
+permissions:
+  contents: read
+
+env:
+  SELFHOST_PRODUCT_NAME: Readest Selfhost
+  SELFHOST_APP_IDENTIFIER: com.readest.selfhost
+  SELFHOST_ANDROID_VERSION: 0.11.21-selfhost.1
+  SELFHOST_ANDROID_VERSION_CODE: 11021
+  SELFHOST_ANDROID_CERT_SHA256: 903bf29bdf76ec24766e48eb8eafc0f0d228572be347008956b3f6aa63d753be
+  SELFHOST_RELEASE_VERSION: ${{ inputs.release_version }}
+  TAURI_UPDATER_ENDPOINT: https://github.com/${{ github.repository }}/releases/latest/download/latest.json
+  NODE_OPTIONS: --max-old-space-size=8192
+
+jobs:
+  build-android-arm64:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Initialize git submodules
+        run: git submodule update --init --recursive
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6
+
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v6
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Setup Java
+        uses: actions/setup-java@0f481fcb613427c0f801b606911222b5b6f3083a # v5
+        with:
+          distribution: zulu
+          java-version: '17'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@40fd30fb8d7440372e1316f5d1809ec01dcd3699 # v4
+
+      - name: Install Android NDK
+        run: sdkmanager "ndk;28.2.13676358"
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile --prefer-offline
+
+      - name: Apply validation version
+        run: |
+          set -euo pipefail
+          if [ "$SELFHOST_RELEASE_VERSION" != "$SELFHOST_ANDROID_VERSION" ]; then
+            echo "::error::Expected validation version $SELFHOST_ANDROID_VERSION"
+            exit 1
+          fi
+          cd apps/readest-app
+          node - <<'NODE'
+          const fs = require('node:fs');
+          const path = 'package.json';
+          const pkg = JSON.parse(fs.readFileSync(path, 'utf8'));
+          pkg.version = process.env.SELFHOST_RELEASE_VERSION;
+          fs.writeFileSync(path, `${JSON.stringify(pkg, null, 2)}\n`);
+          NODE
+
+      - name: Setup app vendors
+        run: pnpm --filter @readest/readest-app setup-vendors
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
+        with:
+          targets: aarch64-linux-android
+
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        with:
+          key: android-arm64-selfhost-cargo
+
+      - name: Validate signing secrets
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          TAURI_UPDATER_PUBKEY: ${{ secrets.TAURI_UPDATER_PUBKEY }}
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          for name in \
+            TAURI_SIGNING_PRIVATE_KEY \
+            TAURI_SIGNING_PRIVATE_KEY_PASSWORD \
+            TAURI_UPDATER_PUBKEY \
+            ANDROID_KEYSTORE_BASE64 \
+            ANDROID_KEYSTORE_PASSWORD \
+            ANDROID_KEY_ALIAS \
+            ANDROID_KEY_PASSWORD
+          do
+            if [ -z "${!name:-}" ]; then
+              echo "::error::$name secret is required"
+              exit 1
+            fi
+          done
+
+      - name: Initialize Android project
+        env:
+          TAURI_UPDATER_PUBKEY: ${{ secrets.TAURI_UPDATER_PUBKEY }}
+        run: |
+          set -euo pipefail
+          cd apps/readest-app
+          rm -rf src-tauri/gen/android
+          pnpm patch-tauri-selfhost
+          pnpm tauri android init
+          pnpm tauri icon ../../data/icons/readest-book.png
+
+      - name: Decode Android keystore
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PATH: ${{ runner.temp }}/readest-selfhost-keystore.jks
+        run: |
+          set -euo pipefail
+          base64 -d <<< "$ANDROID_KEYSTORE_BASE64" > "$ANDROID_KEYSTORE_PATH"
+
+      - name: Build, sign, and audit Android arm64 APK
+        env:
+          ANDROID_KEYSTORE_PATH: ${{ runner.temp }}/readest-selfhost-keystore.jks
+          NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/28.2.13676358
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          TAURI_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          TAURI_UPDATER_PUBKEY: ${{ secrets.TAURI_UPDATER_PUBKEY }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          cd apps/readest-app
+          version=$(node -p "require('./package.json').version")
+          if [ "$version" != "$SELFHOST_ANDROID_VERSION" ]; then
+            echo "::error::Unexpected package version: $version"
+            exit 1
+          fi
+
+          output_dir=dist/selfhost/android
+          rm -rf "$output_dir"
+          mkdir -p "$output_dir"
+          pnpm tauri android build -t aarch64 --apk
+
+          selected_apks=()
+          while IFS= read -r apk; do
+            mapfile -t apk_abis < <(unzip -Z1 "$apk" | sed -n 's#^lib/\([^/]*\)/.*#\1#p' | sort -u)
+            if [ "${apk_abis[*]:-}" = 'arm64-v8a' ]; then
+              selected_apks+=("$apk")
+            fi
+          done < <(find src-tauri/gen/android/app/build/outputs/apk -type f -name '*release*.apk' | sort)
+          if [ "${#selected_apks[@]}" -ne 1 ]; then
+            echo "::error::Expected one arm64-v8a release APK, found ${#selected_apks[@]}"
+            printf '%s\n' "${selected_apks[@]:-}"
+            exit 1
+          fi
+
+          asset="$output_dir/Readest-Selfhost_${version}_arm64.apk"
+          cp "${selected_apks[0]}" "$asset"
+          build_tools=$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -n 1)
+          if [ ! -x "$build_tools/apksigner" ] || [ ! -x "$build_tools/aapt" ]; then
+            echo "::error::Android build tools do not provide apksigner and aapt"
+            exit 1
+          fi
+          export PATH="$build_tools:$PATH"
+
+          keystore_certificate_digest=$(
+            keytool -exportcert \
+              -alias "$ANDROID_KEY_ALIAS" \
+              -keystore "$ANDROID_KEYSTORE_PATH" \
+              -storepass "$ANDROID_KEYSTORE_PASSWORD" 2>/dev/null |
+              sha256sum |
+              awk '{print $1}'
+          )
+          if [ "$keystore_certificate_digest" != "$SELFHOST_ANDROID_CERT_SHA256" ]; then
+            echo "::error::Android keystore certificate does not match the pinned selfhost certificate"
+            exit 1
+          fi
+
+          signed_apk="${asset}.signed"
+          apksigner sign \
+            --ks "$ANDROID_KEYSTORE_PATH" \
+            --ks-key-alias "$ANDROID_KEY_ALIAS" \
+            --ks-pass env:ANDROID_KEYSTORE_PASSWORD \
+            --key-pass env:ANDROID_KEY_PASSWORD \
+            --v4-signing-enabled false \
+            --out "$signed_apk" \
+            "$asset"
+          mv "$signed_apk" "$asset"
+
+          verification=$(apksigner verify --verbose --print-certs "$asset")
+          certificate_digest=$(
+            bash "$GITHUB_WORKSPACE/scripts/extract-android-certificate-sha256.sh" <<< "$verification"
+          )
+          if [ "$certificate_digest" != "$SELFHOST_ANDROID_CERT_SHA256" ]; then
+            echo "::error::Unexpected Android signing certificate"
+            exit 1
+          fi
+
+          badging=$(aapt dump badging "$asset")
+          package_identifier=$(sed -n "s/^package: name='\([^']*\)'.*/\1/p" <<< "$badging")
+          package_version_code=$(sed -n "s/^package: .*versionCode='\([^']*\)'.*/\1/p" <<< "$badging")
+          package_version=$(sed -n "s/^package: .*versionName='\([^']*\)'.*/\1/p" <<< "$badging")
+          if [ "$package_identifier" != "$SELFHOST_APP_IDENTIFIER" ]; then
+            echo "::error::Unexpected Android package identifier: $package_identifier"
+            exit 1
+          fi
+          if [ "$package_version" != "$SELFHOST_ANDROID_VERSION" ]; then
+            echo "::error::Unexpected Android version: $package_version"
+            exit 1
+          fi
+          if [ "$package_version_code" != "$SELFHOST_ANDROID_VERSION_CODE" ]; then
+            echo "::error::Unexpected Android version code: $package_version_code"
+            exit 1
+          fi
+          mapfile -t final_abis < <(unzip -Z1 "$asset" | sed -n 's#^lib/\([^/]*\)/.*#\1#p' | sort -u)
+          if [ "${final_abis[*]:-}" != 'arm64-v8a' ]; then
+            echo "::error::Unexpected Android ABI set: ${final_abis[*]:-none}"
+            exit 1
+          fi
+
+          apk_sha256=$(sha256sum "$asset" | awk '{print $1}')
+          (
+            cd "$output_dir"
+            printf '%s  %s\n' "$apk_sha256" "$(basename "$asset")" > SHA256SUMS.txt
+          )
+          {
+            printf 'package=%s\n' "$package_identifier"
+            printf 'versionName=%s\n' "$package_version"
+            printf 'versionCode=%s\n' "$package_version_code"
+            printf 'abi=%s\n' "${final_abis[*]}"
+            printf 'certificateSha256=%s\n' "$certificate_digest"
+            printf 'apkSha256=%s\n' "$apk_sha256"
+          } > "$output_dir/apk-audit.txt"
+
+      - name: Upload signed Android arm64 artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: selfhost-android-arm64-${{ inputs.release_version }}
+          path: |
+            apps/readest-app/dist/selfhost/android/Readest-Selfhost_${{ inputs.release_version }}_arm64.apk
+            apps/readest-app/dist/selfhost/android/SHA256SUMS.txt
+            apps/readest-app/dist/selfhost/android/apk-audit.txt
+          if-no-files-found: error
+          retention-days: 14
