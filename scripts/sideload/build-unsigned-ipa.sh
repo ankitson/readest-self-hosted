@@ -100,6 +100,20 @@ xcodebuild -project Readest.xcodeproj -scheme Readest_iOS \
   build
 
 app="$(ls -d "$DERIVED/Build/Products/release-iphoneos/"*.app | head -1)"
+
+# Give every build a distinct CFBundleVersion. Both the marketing version and the
+# build number are derived from package.json, so consecutive CI builds are
+# byte-identical in version terms -- and AltStore/SideStore offer an update only
+# when "version or buildVersion" differs from what is installed (dates are
+# explicitly ignored). Without this, a new IPA is published and no client ever
+# sees it. Safe to edit in place: the app is unsigned, so there is no signature
+# to invalidate; the sideload signer signs afterwards.
+if [ -n "${SIDELOAD_BUILD_NUMBER:-}" ]; then
+  short="$(plutil -extract CFBundleShortVersionString raw -o - "$app/Info.plist")"
+  plutil -replace CFBundleVersion -string "$short.$SIDELOAD_BUILD_NUMBER" "$app/Info.plist"
+  echo "    CFBundleVersion -> $short.$SIDELOAD_BUILD_NUMBER"
+fi
+
 work="$(mktemp -d)"
 mkdir -p "$work/Payload"
 cp -R "$app" "$work/Payload/"

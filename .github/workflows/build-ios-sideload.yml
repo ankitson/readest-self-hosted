@@ -65,6 +65,10 @@ jobs:
         run: pnpm install --frozen-lockfile --prefer-offline
 
       - name: Build unsigned IPA
+        env:
+          # Makes CFBundleVersion unique per run so SideStore can tell builds
+          # apart; it compares version/buildVersion, never dates.
+          SIDELOAD_BUILD_NUMBER: ${{ github.run_number }}
         run: scripts/sideload/build-unsigned-ipa.sh "$RUNNER_TEMP/readest-selfhost.ipa"
 
       # Read the version off the built app, NOT package.json. package.json carries
