@@ -96,6 +96,11 @@ targets:
         EMBEDDED_CONTENT_CONTAINS_SWIFT_CODE: YES
         EXCLUDED_ARCHS[sdk=iphoneos*]: x86_64
         SWIFT_VERSION: "5.0"
+        # SentrySupport/SentryBootstrap.m uses `@import Sentry;`.
+        CLANG_ENABLE_MODULES: YES
+        # 1,2 = iPhone + iPad. Without this the app ships
+        # UIDeviceFamily=[1] and iPadOS runs it letterboxed.
+        TARGETED_DEVICE_FAMILY: "1,2"
       groups: [app]
     dependencies:
       - package: Sentry
@@ -119,7 +124,7 @@ targets:
       - sdk: CarPlay.framework
       - sdk: MediaPlayer.framework
     preBuildScripts:
-      - script: pnpm tauri ios xcode-script -v --platform ${PLATFORM_DISPLAY_NAME:?} --sdk-root ${SDKROOT:?} --framework-search-paths "${FRAMEWORK_SEARCH_PATHS:?}" --header-search-paths "${HEADER_SEARCH_PATHS:?}" --gcc-preprocessor-definitions "${GCC_PREPROCESSOR_DEFINITIONS:-}" --configuration ${CONFIGURATION:?} ${FORCE_COLOR} ${ARCHS:?}
+      - script: export PATH="$HOME/.cargo/bin:/opt/homebrew/bin:/usr/local/bin:${PNPM_HOME:-$HOME/Library/pnpm}:$HOME/.local/bin:$PATH"; pnpm tauri ios xcode-script -v --platform ${PLATFORM_DISPLAY_NAME:?} --sdk-root ${SDKROOT:?} --framework-search-paths "${FRAMEWORK_SEARCH_PATHS:?}" --header-search-paths "${HEADER_SEARCH_PATHS:?}" --gcc-preprocessor-definitions "${GCC_PREPROCESSOR_DEFINITIONS:-}" --configuration ${CONFIGURATION:?} ${FORCE_COLOR} ${ARCHS:?}
         name: Build Rust Code
         basedOnDependencyAnalysis: false
         outputFiles:
