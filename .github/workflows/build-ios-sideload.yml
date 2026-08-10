@@ -66,12 +66,21 @@ jobs:
       - name: Build unsigned IPA
         run: scripts/sideload/build-unsigned-ipa.sh "$RUNNER_TEMP/readest-selfhost.ipa"
 
+      # Read the version off the built app, NOT package.json. package.json carries
+      # a prerelease tag (0.11.21-selfhost.1) which iOS strips from
+      # CFBundleShortVersionString (-> 0.11.21); advertising the unstripped one
+      # would mean the feed version never matches the installed version and
+      # SideStore could never resolve updates correctly.
       - name: Read version
         id: v
         run: |
-          v=$(node -p "require('./apps/readest-app/package.json').version")
+          unzip -p "$RUNNER_TEMP/readest-selfhost.ipa" 'Payload/*.app/Info.plist' > "$RUNNER_TEMP/app-Info.plist"
+          v=$(plutil -extract CFBundleShortVersionString raw -o - "$RUNNER_TEMP/app-Info.plist")
+          b=$(plutil -extract CFBundleVersion raw -o - "$RUNNER_TEMP/app-Info.plist")
           echo "version=$v" >> "$GITHUB_OUTPUT"
+          echo "build=$b" >> "$GITHUB_OUTPUT"
           echo "tag=sideload-v$v-${{ github.run_number }}" >> "$GITHUB_OUTPUT"
+          echo "app version $v (build $b)"
 
       - uses: actions/upload-artifact@v4
         with:
@@ -87,6 +96,7 @@ jobs:
         env:
           REPO_URL: ${{ github.server_url }}/${{ github.repository }}
           VERSION: ${{ steps.v.outputs.version }}
+          BUILD_VERSION: ${{ steps.v.outputs.build }}
         run: |
           python3 - <<'PY'
           import json, os, pathlib, subprocess
@@ -100,7 +110,7 @@ jobs:
 
           entry = {
               "version": version,
-              "buildVersion": os.environ.get("GITHUB_RUN_NUMBER", "1"),
+              "buildVersion": os.environ["BUILD_VERSION"],
               "date": date,
               "size": ipa.stat().st_size,
               "downloadURL": f"{latest}/readest-selfhost.ipa",
@@ -170,3 +180,15 @@ jobs:
           - devices: iPhone + iPad (UIDeviceFamily 1,2)
 
           Point the app at your own Readest instance on first launch."
+
+      - name: Prune old sideload releases
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release list --repo "$GITHUB_REPOSITORY" --limit 100 \
+            --json tagName --jq '.[].tagName' \
+            | grep '^sideload-v' | tail -n +6 \
+            | while read -r tag; do
+                echo "deleting old release $tag"
+                gh release delete "$tag" --repo "$GITHUB_REPOSITORY" --yes --cleanup-tag
+              done
