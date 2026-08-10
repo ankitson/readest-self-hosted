@@ -63,23 +63,35 @@ reading and annotation are unaffected.
 
 ## Device setup (one time, done by hand)
 
-Verified: the build and feed. **Not** verified on-device — I could not drive the
-iPad. Expect to adjust.
-
-1. **Install SideStore.** On iPadOS 26.4+ install it with
-   [iloader](https://iloader.app/) — the plain install path hits VPN errors on
-   those versions, per SideStore's own 0.6.3 release notes.
-2. **Pairing file.** Generate one with `idevicepair` (already installed via
-   Homebrew on the Mac) or Jitterbug, and hand it to SideStore.
-3. **LocalDevVPN.** Enable it in SideStore; 0.6.3 replaced the old StosVPN/
-   WireGuard loopback with it.
+1. **Install SideStore *nightly*, not 0.6.3 stable.** Stable has an unfixed bug
+   where it can never determine the device UDID (SideStore#1418); the maintainer's
+   answer is "expect fix in the next stable 0.6.4 or later. or if required use
+   nightly and use only iloader >= 2.3.1". On iPadOS 26.4+ install it with
+   [iloader](https://iloader.app/) — the plain path hits VPN errors there.
+   Nightly IPA: `https://github.com/SideStore/SideStore/releases/download/nightly/SideStore.ipa`
+2. **Pairing file.** Generate one with `idevicepair` or Jitterbug and hand it to
+   SideStore.
+3. **Install the LocalDevVPN app and enable it.** It is a *loopback* VPN: SideStore
+   is sandboxed and cannot otherwise reach `lockdownd` on the device it runs on.
+   No LAN or Tailscale address is involved — do not put one in the connection
+   config.
 4. **Add the source:**
    `https://github.com/ankitson/readest-self-hosted/releases/latest/download/source.json`
-5. Install **Readest Selfhost** from that source, then enter
-   `https://readest.home.ankitson.com` on first launch.
+5. Install **Readest Selfhost**, then enter your server URL on first launch.
 
-Free-Apple-ID limits that still apply: **3** sideloaded apps at once (SideStore
-itself is one of them) and 10 new App IDs per 7 days. SideStore's background
-refresh is what keeps the 7-day certificate from expiring — if the iPad is off
-the network for longer than that, the app stops launching until you open
-SideStore and refresh.
+### Tailscale conflicts with LocalDevVPN
+
+iOS runs **one VPN at a time**, and both are `NEPacketTunnelProvider`s. With
+Tailscale connected, LocalDevVPN stays `Active: No` and SideStore's auto-discovery
+latches onto Tailscale's `100.64.0.0/10` CGNAT addresses instead of the tunnel's
+`10.7.0.x`, giving "unable to reach the device endpoint".
+
+So background auto-refresh will NOT work while Tailscale is on. Refreshing is a
+manual weekly step: turn Tailscale off (including **Connect On Demand**, which
+silently reconnects), open SideStore, Refresh All, turn Tailscale back on.
+
+### Free-Apple-ID limits
+
+**3** sideloaded apps at once (SideStore is one) and 10 new App IDs per 7 days.
+The signing certificate expires every 7 days; if the app is not refreshed before
+then it stops launching until you open SideStore and refresh.

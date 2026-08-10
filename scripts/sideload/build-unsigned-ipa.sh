@@ -68,7 +68,16 @@ export SDKROOT="${SDKROOT:-$(xcrun --sdk iphoneos --show-sdk-path)}"
 export IPHONEOS_DEPLOYMENT_TARGET="${IPHONEOS_DEPLOYMENT_TARGET:-15.0}"
 export PLATFORM_NAME="${PLATFORM_NAME:-iphoneos}"
 
-( cd src-tauri && cargo build --lib --release --target "$RUST_TARGET" )
+# --features tauri/custom-protocol is NOT optional and NOT implied by --release.
+# tauri's build.rs does `let dev = !custom_protocol`, so without this feature the
+# binary is a DEV build: it ignores the embedded frontend and tries to load
+# `devUrl` (http://localhost:3000), which on a device fails with
+# "error sending request ... did you grant local network permissions?".
+# `tauri build` passes it automatically; a bare `cargo build` must not forget it.
+# The app crate declares no custom-protocol feature of its own, so enable it on
+# the tauri dependency directly.
+( cd src-tauri && cargo build --lib --release --target "$RUST_TARGET" \
+    --features tauri/custom-protocol )
 
 # This is a cargo workspace rooted at the repo, so the target dir is NOT
 # src-tauri/target -- ask cargo rather than assuming.
