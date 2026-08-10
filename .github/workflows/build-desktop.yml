@@ -62,6 +62,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
+          # --repo is required: this job only downloads artifacts and never checks
+          # out the repo, so gh has no git context and fails with
+          # "failed to run git: fatal: not a git repository".
           tag=desktop-latest
           title="Readest Selfhost desktop (rolling)"
           notes=$(cat <<'EOF'
@@ -77,10 +80,10 @@ jobs:
           # Deliberately NOT marked latest. The SideStore source feed resolves
           # through /releases/latest/download/, which must keep resolving to the
           # iOS sideload release -- see .github/workflows/build-ios-sideload.yml.
-          if gh release view "$tag" >/dev/null 2>&1; then
-            gh release edit "$tag" --title "$title" --notes "$notes" --latest=false
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release edit "$tag" --repo "$GITHUB_REPOSITORY" --title "$title" --notes "$notes" --latest=false
           else
-            gh release create "$tag" --title "$title" --notes "$notes" --latest=false
+            gh release create "$tag" --repo "$GITHUB_REPOSITORY" --title "$title" --notes "$notes" --latest=false
           fi
-          gh release upload "$tag" release-assets/* --clobber
+          gh release upload "$tag" --repo "$GITHUB_REPOSITORY" release-assets/* --clobber
           echo "published $(ls release-assets | wc -l) assets to $tag"
