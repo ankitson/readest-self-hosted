@@ -54,6 +54,29 @@ jobs:
         working-directory: apps/readest-app
         run: pnpm patch-tauri-selfhost
 
+      # gen/apple is gitignored except for a few force-added files, so a fresh
+      # checkout has project.yml and the hand-written Swift but none of the
+      # generated scaffolding (Sources, Assets.xcassets, Externals,
+      # LaunchScreen.storyboard) that xcodegen validates against.
+      # `tauri ios init` fills those in. It will NOT create Readest_iOS/Info.plist
+      # when gen/apple already exists, so if that is still missing afterwards we
+      # scaffold a pristine tree aside and lift just the plist across.
+      - name: Scaffold generated iOS project files
+        working-directory: apps/readest-app
+        run: |
+          pnpm tauri ios init
+          plist=src-tauri/gen/apple/Readest_iOS/Info.plist
+          if [ ! -f "$plist" ]; then
+            echo "Info.plist absent after init; scaffolding a pristine tree for it"
+            mv src-tauri/gen/apple src-tauri/gen/apple.custom
+            pnpm tauri ios init
+            cp src-tauri/gen/apple/Readest_iOS/Info.plist \
+               src-tauri/gen/apple.custom/Readest_iOS/Info.plist
+            rm -rf src-tauri/gen/apple
+            mv src-tauri/gen/apple.custom src-tauri/gen/apple
+          fi
+          test -f "$plist" && echo "Info.plist present ($(wc -c < "$plist") bytes)"
+
       # Identity lives in repo config, never in git: patch-tauri-selfhost resets
       # tauri.conf.json to the fork's identifier and Readest's team, so this must
       # run after it. Entitlements are emptied because a personal team cannot
