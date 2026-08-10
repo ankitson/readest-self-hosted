@@ -1,0 +1,76 @@
+name: Build desktop
+
+# Automatic desktop builds. The fork already has a complete, tested build matrix
+# in build-selfhost.yml (Windows / macOS / Linux / Android), but it only runs on
+# manual dispatch, and release-selfhost.yml only fires on a `selfhost-v*` tag --
+# neither of which is automatic. This wraps the existing build via workflow_call
+# rather than duplicating it, and publishes the artifacts to a rolling release.
+#
+# Tags pushed by a workflow using GITHUB_TOKEN do not trigger other workflows
+# (GitHub's recursion guard), so "tag from CI to fire release-selfhost" is not an
+# option without a PAT. Calling the reusable workflow directly avoids that.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'apps/readest-app/**'
+      - 'packages/**'
+      - '.github/workflows/build-desktop.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: desktop
+  cancel-in-progress: true
+
+jobs:
+  build:
+    uses: ./.github/workflows/build-selfhost.yml
+    secrets: inherit
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Flatten artifacts
+        run: |
+          set -euo pipefail
+          mkdir -p release-assets
+          find artifacts -type f -exec cp -n {} release-assets/ \;
+          echo "assets to publish:"
+          ls -la release-assets
+
+      - name: Publish to the rolling desktop release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tag=desktop-latest
+          title="Readest Selfhost desktop (rolling)"
+          notes=$(cat <<'EOF'
+          Latest automatic desktop + Android build from `main`.
+
+          Rolling release: assets are replaced on every build, so the download
+          URLs stay stable. macOS builds are ad-hoc signed but not notarized, so
+          Gatekeeper will warn on first launch.
+
+          Point the app at your own Readest instance on first launch.
+          EOF
+          )
+          # Deliberately NOT marked latest. The SideStore source feed resolves
+          # through /releases/latest/download/, which must keep resolving to the
+          # iOS sideload release -- see .github/workflows/build-ios-sideload.yml.
+          if gh release view "$tag" >/dev/null 2>&1; then
+            gh release edit "$tag" --title "$title" --notes "$notes" --latest=false
+          else
+            gh release create "$tag" --title "$title" --notes "$notes" --latest=false
+          fi
+          gh release upload "$tag" release-assets/* --clobber
+          echo "published $(ls release-assets | wc -l) assets to $tag"
