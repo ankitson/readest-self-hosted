@@ -33,6 +33,12 @@ jobs:
 
   publish:
     needs: build
+    # Publish whatever built. The Android job fails by design here: the fork pins
+    # luoji12103's own keystore certificate ("Android keystore certificate does
+    # not match the pinned selfhost certificate") and our keystore is ours, so it
+    # can never match. We do not ship Android, and one failing matrix leg must not
+    # withhold the macOS and Windows builds.
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4
@@ -44,6 +50,10 @@ jobs:
           set -euo pipefail
           mkdir -p release-assets
           find artifacts -type f -exec cp -n {} release-assets/ \;
+          if [ -z "$(ls -A release-assets)" ]; then
+            echo "::error::no artifacts were produced by any platform"
+            exit 1
+          fi
           echo "assets to publish:"
           ls -la release-assets
 
