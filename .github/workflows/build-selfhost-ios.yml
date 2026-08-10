@@ -1,0 +1,108 @@
+name: Build iOS (selfhost)
+
+# iOS cannot run on GitHub-hosted runners here: a free Apple personal team has no
+# App Store Connect API key, so xcodebuild cannot authenticate for provisioning,
+# and its profiles expire after 7 days. This runs on a self-hosted macOS runner
+# installed as a USER LaunchAgent -- not a LaunchDaemon. A daemon has no Aqua
+# security session and codesign fails with errSecInternalComponent.
+
+on:
+  workflow_dispatch:
+    inputs:
+      configuration:
+        description: Build configuration
+        required: false
+        default: release
+        type: choice
+        options: [release, debug]
+
+jobs:
+  build-ios:
+    runs-on: [self-hosted, macos, ios]
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile --prefer-offline
+
+      - name: Set up vendored assets (pdf.js, simplecc, jieba)
+        run: pnpm --filter @readest/readest-app setup-vendors
+
+      - name: Apply fork self-host patch
+        working-directory: apps/readest-app
+        run: pnpm patch-tauri-selfhost
+
+      # Identity lives in repo config, never in git: patch-tauri-selfhost resets
+      # tauri.conf.json to the fork's identifier and Readest's team, so this must
+      # run after it. Entitlements are emptied because a personal team cannot
+      # provision Sign in with Apple, associated domains, App Groups or CarPlay,
+      # and an entitlement no profile backs produces a launch-killed app.
+      - name: Apply signing identity
+        working-directory: apps/readest-app
+        env:
+          IOS_BUNDLE_ID: ${{ vars.IOS_BUNDLE_ID }}
+          IOS_TEAM_ID: ${{ secrets.IOS_TEAM_ID }}
+        run: |
+          python3 - <<'PY'
+          import json, os, pathlib
+          bundle, team = os.environ["IOS_BUNDLE_ID"], os.environ["IOS_TEAM_ID"]
+          conf = pathlib.Path("src-tauri/tauri.conf.json")
+          c = json.loads(conf.read_text())
+          c["identifier"] = bundle
+          c.setdefault("bundle", {}).setdefault("iOS", {})["developmentTeam"] = team
+          conf.write_text(json.dumps(c, indent=2) + "\n")
+
+          proj = pathlib.Path("src-tauri/gen/apple/project.yml")
+          t = proj.read_text()
+          t = t.replace("com.bilingify.readest", bundle).replace("J5W48D69VR", team)
+          # Drop the extension targets: both need App Groups, which a personal
+          # team cannot provision.
+          start = t.find("\n  ShareExtension:")
+          if start != -1:
+              t = t[:start] + "\n"
+          out, skip = [], False
+          for line in t.splitlines(keepends=True):
+              if line.strip().startswith("- target: ShareExtension") or \
+                 line.strip().startswith("- target: ReadestWidget"):
+                  skip = True; continue
+              if skip and line.strip().startswith(("embed:", "codeSign:")):
+                  continue
+              skip = False
+              out.append(line)
+          proj.write_text("".join(out))
+
+          ents = pathlib.Path("src-tauri/gen/apple/Readest_iOS/Readest_iOS.entitlements")
+          ents.write_text('<?xml version="1.0" encoding="UTF-8"?>\n'
+                          '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" '
+                          '"http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n'
+                          '<plist version="1.0">\n<dict/>\n</plist>\n')
+          print(f"identity applied: {bundle} / {team[:4]}******")
+          PY
+
+      # project.pbxproj is tracked but xcodegen regenerates it from project.yml.
+      # Regenerating is what makes the identity edits above take effect.
+      - name: Regenerate Xcode project
+        working-directory: apps/readest-app/src-tauri/gen/apple
+        run: xcodegen generate
+
+      - name: Build
+        working-directory: apps/readest-app
+        run: pnpm tauri ios build --target aarch64
+
+      - name: Collect artifacts
+        run: |
+          mkdir -p dist-ios
+          find ~/Library/Developer/Xcode/DerivedData/Readest-*/Build/Products \
+               -name "*.ipa" -o -name "*.app" -maxdepth 2 -print0 2>/dev/null \
+            | xargs -0 -I{} cp -R {} dist-ios/ || true
+          ls -la dist-ios/
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: readest-selfhost-ios
+          path: dist-ios/
+          if-no-files-found: warn
+          retention-days: 14
