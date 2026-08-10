@@ -46,11 +46,12 @@ jobs:
       - name: Install Rust iOS target
         run: rustup target add aarch64-apple-ios
 
-      # Keyed on the lockfile + Cargo.lock; a warm cache turns a ~40 min cold
-      # build into a few minutes.
+      # The cargo workspace is rooted at the REPO, not src-tauri, so the target
+      # dir is <repo>/target -- pointing the cache at src-tauri cached almost
+      # nothing and left the build at ~18 min.
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: apps/readest-app/src-tauri
+          workspaces: "."
           key: ios-sideload
 
       - name: Install build tools
