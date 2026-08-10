@@ -42,7 +42,14 @@ export const saveViewSettings = async <K extends keyof ViewSettings>(
     useReaderStore.getState();
   const { getConfig, saveConfig } = useBookDataStore.getState();
 
-  const applyViewSettings = async (bookKey: string) => {
+  // `settingsForSave` must be the settings whose globalViewSettings already
+  // contain this change. saveBookConfig -> serializeConfig persists only the
+  // keys that DIFFER from global; comparing against a pre-update `settings`
+  // makes the new value look like a per-book override and writes it into the
+  // book's config permanently. Because book config wins on open
+  // (`{ ...globalViewSettings, ...configViewSettings }`), that book then
+  // ignores every later global change - even with Global Settings enabled.
+  const applyViewSettings = async (bookKey: string, settingsForSave: SystemSettings = settings) => {
     const viewSettings = getViewSettings(bookKey);
     const viewState = getViewState(bookKey);
     if (bookKey && viewSettings && viewSettings[key] !== value) {
@@ -54,7 +61,7 @@ export const saveViewSettings = async <K extends keyof ViewSettings>(
       }
       const config = getConfig(bookKey);
       if (viewState?.isPrimary && config) {
-        await saveConfig(envConfig, bookKey, config, settings);
+        await saveConfig(envConfig, bookKey, config, settingsForSave);
       }
     }
   };
@@ -74,7 +81,7 @@ export const saveViewSettings = async <K extends keyof ViewSettings>(
     setSettings(nextSettings);
 
     for (const bookKey of bookKeys) {
-      await applyViewSettings(bookKey);
+      await applyViewSettings(bookKey, nextSettings);
     }
     await saveSettings(envConfig, nextSettings);
   } else if (bookKey) {
