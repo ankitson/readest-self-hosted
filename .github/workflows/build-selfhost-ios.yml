@@ -25,6 +25,25 @@ jobs:
         with:
           submodules: recursive
 
+      # The runner is a LaunchAgent, so it inherits launchd's minimal PATH rather
+      # than an interactive shell's -- brew, cargo, node and pnpm are all invisible
+      # without this. $GITHUB_PATH applies to every later step.
+      - name: Set up toolchain PATH
+        run: |
+          for d in /opt/homebrew/bin "$HOME/.cargo/bin" "$HOME/dev/bin"; do
+            [ -d "$d" ] && echo "$d" >> "$GITHUB_PATH"
+          done
+          node_bin=$(ls -d "$HOME"/Library/pnpm/nodejs/*/bin 2>/dev/null | tail -1)
+          [ -n "$node_bin" ] && echo "$node_bin" >> "$GITHUB_PATH"
+          true
+
+      - name: Verify toolchain
+        run: |
+          echo "node:     $(node --version)"
+          echo "pnpm:     $(pnpm --version)"
+          echo "cargo:    $(cargo --version)"
+          echo "xcodegen: $(xcodegen --version | tail -1)"
+
       - name: Install dependencies
         run: pnpm install --frozen-lockfile --prefer-offline
 
