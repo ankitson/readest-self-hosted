@@ -1,6 +1,6 @@
 name: Readest
 options:
-  bundleIdPrefix: com.bilingify.readest
+  bundleIdPrefix: com.readest.selfhost.sideload
   deploymentTarget:
     iOS: 15.0
 fileGroups: [../../src]
@@ -14,9 +14,8 @@ configs:
 settingGroups:
   app:
     base:
-      PRODUCT_NAME: Readest
-      PRODUCT_BUNDLE_IDENTIFIER: com.bilingify.readest
-      DEVELOPMENT_TEAM: J5W48D69VR
+      PRODUCT_NAME: Readest Selfhost
+      PRODUCT_BUNDLE_IDENTIFIER: com.readest.selfhost.sideload
 targetTemplates:
   app:
     type: application
@@ -35,7 +34,7 @@ targets:
     # NOTE on In-App Purchase capability
     # ----------------------------------
     # IAP is enabled at three layers:
-    #   1. App ID `com.bilingify.readest` services (Apple Developer
+    #   1. App ID `com.readest.selfhost.sideload` services (Apple Developer
     #      portal) — must have "In-App Purchase" service ON.
     #   2. Provisioning profile — pulled automatically by Xcode when
     #      DEVELOPMENT_TEAM is set; inherits IAP from the App ID.
@@ -107,12 +106,6 @@ targets:
         product: Sentry
       - framework: libapp.a
         embed: false
-      - target: ShareExtension
-        embed: true
-        codeSign: true
-      - target: ReadestWidget
-        embed: true
-        codeSign: true
       - sdk: CoreGraphics.framework
       - sdk: Metal.framework
       - sdk: MetalKit.framework
@@ -124,7 +117,16 @@ targets:
       - sdk: CarPlay.framework
       - sdk: MediaPlayer.framework
     preBuildScripts:
-      - script: export PATH="$HOME/.cargo/bin:/opt/homebrew/bin:/usr/local/bin:${PNPM_HOME:-$HOME/Library/pnpm}:$HOME/.local/bin:$PATH"; pnpm tauri ios xcode-script -v --platform ${PLATFORM_DISPLAY_NAME:?} --sdk-root ${SDKROOT:?} --framework-search-paths "${FRAMEWORK_SEARCH_PATHS:?}" --header-search-paths "${HEADER_SEARCH_PATHS:?}" --gcc-preprocessor-definitions "${GCC_PREPROCESSOR_DEFINITIONS:-}" --configuration ${CONFIGURATION:?} ${FORCE_COLOR} ${ARCHS:?}
+      - script: |
+          # Prebuilt-lib escape hatch: `tauri ios xcode-script` connects back to the
+          # parent tauri CLI over a local JSON-RPC socket, so it cannot run under a
+          # bare `xcodebuild`. Unsigned CI builds compile the staticlib themselves
+          # and drop it into Externals/, then set this to skip the phase.
+          if [ "${READEST_PREBUILT_RUST:-0}" = "1" ]; then
+            echo "READEST_PREBUILT_RUST=1 - using prebuilt libapp.a"
+            exit 0
+          fi
+          export PATH="$HOME/.cargo/bin:/opt/homebrew/bin:/usr/local/bin:${PNPM_HOME:-$HOME/Library/pnpm}:$HOME/.local/bin:$PATH"; pnpm tauri ios xcode-script -v --platform ${PLATFORM_DISPLAY_NAME:?} --sdk-root ${SDKROOT:?} --framework-search-paths "${FRAMEWORK_SEARCH_PATHS:?}" --header-search-paths "${HEADER_SEARCH_PATHS:?}" --gcc-preprocessor-definitions "${GCC_PREPROCESSOR_DEFINITIONS:-}" --configuration ${CONFIGURATION:?} ${FORCE_COLOR} ${ARCHS:?}
         name: Build Rust Code
         basedOnDependencyAnalysis: false
         outputFiles:
@@ -136,92 +138,3 @@ targets:
   # NSExtensionContext, encodes it into `readest://share?url=...`, and
   # opens the main app — which catches the deep-link via
   # `tauri-plugin-deep-link` and runs the clip-and-import pipeline.
-  ShareExtension:
-    type: app-extension
-    platform: iOS
-    # The Share Extension uses iOS-system-localized bar button items
-    # (`barButtonSystemItem: .cancel` / `.save`) plus a JS-supplied
-    # "Default" group name (passed through the App Group), so the target
-    # carries no per-locale `.strings` files — no `.lproj` directories
-    # to wire up.
-    sources:
-      - path: ShareExtension
-    info:
-      path: ShareExtension/Info.plist
-      properties:
-        CFBundleDisplayName: Readest
-        NSExtension:
-          NSExtensionPointIdentifier: com.apple.share-services
-          NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).ShareViewController
-          NSExtensionAttributes:
-            # Web URLs only. Do NOT add NSExtensionActivationSupportsText: a
-            # .txt file is public.plain-text (conforms to public.text), so that
-            # key makes this article-URL clipper activate for plain-text FILES
-            # it can't handle (the share sheet hangs). Book files must fall
-            # through to the main app's CFBundleDocumentTypes import path.
-            NSExtensionActivationRule:
-              NSExtensionActivationSupportsWebURLWithMaxCount: 1
-    # Entitlements referenced via CODE_SIGN_ENTITLEMENTS build setting
-    # rather than xcodegen's `entitlements:` block — otherwise xcodegen
-    # may overwrite the file (even with no properties declared) during
-    # regeneration, and Xcode rejects the build with
-    #   "Entitlements file ... was modified during the build"
-    settings:
-      base:
-        PRODUCT_NAME: ShareExtension
-        PRODUCT_BUNDLE_IDENTIFIER: com.bilingify.readest.ShareExtension
-        DEVELOPMENT_TEAM: J5W48D69VR
-        CODE_SIGN_ENTITLEMENTS: ShareExtension/ShareExtension.entitlements
-        # Do NOT set CODE_SIGN_ALLOW_ENTITLEMENTS_MODIFICATION here. This
-        # entitlements file declares com.apple.security.application-groups
-        # (group.com.bilingify.readest). With automatic App Store signing,
-        # that flag lets `xcodebuild -exportArchive` overwrite the extension
-        # entitlements with a minimal auto-derived set that DROPS the app
-        # group — silently breaking App Group access in App Store builds
-        # (dev builds are unaffected). The main app ships the group
-        # correctly without this flag. If Xcode ever reports "Entitlements
-        # file was modified during the build", fix it by adding the
-        # auto-derived keys to the source file, not by re-enabling this flag.
-        SWIFT_VERSION: "5.0"
-        IPHONEOS_DEPLOYMENT_TARGET: 15.0
-        ARCHS: [arm64]
-        VALID_ARCHS: arm64
-        EXCLUDED_ARCHS[sdk=iphoneos*]: x86_64
-        ENABLE_BITCODE: false
-        ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES: false
-        SKIP_INSTALL: true
-
-  # WidgetKit extension that surfaces the user's current reading progress
-  # on the iOS home screen / Today view. Reads from the App Group suite
-  # written by the main app's useReadingWidget hook (Task 7).
-  ReadestWidget:
-    type: app-extension
-    platform: iOS
-    sources:
-      - path: ReadestWidget
-    info:
-      path: ReadestWidget/Info.plist
-      properties:
-        CFBundleDisplayName: Readest
-        NSExtension:
-          NSExtensionPointIdentifier: com.apple.widgetkit-extension
-    settings:
-      base:
-        PRODUCT_NAME: ReadestWidget
-        PRODUCT_BUNDLE_IDENTIFIER: com.bilingify.readest.ReadestWidget
-        DEVELOPMENT_TEAM: J5W48D69VR
-        CODE_SIGN_ENTITLEMENTS: ReadestWidget/ReadestWidget.entitlements
-        # CODE_SIGN_ALLOW_ENTITLEMENTS_MODIFICATION is intentionally omitted
-        # (see ShareExtension): with it, the App Store export re-sign strips
-        # com.apple.security.application-groups, so the widget reads an empty
-        # snapshot from the App Group and shows only the placeholder book icon.
-        SWIFT_VERSION: "5.0"
-        IPHONEOS_DEPLOYMENT_TARGET: 15.0
-        ARCHS: [arm64]
-        VALID_ARCHS: arm64
-        EXCLUDED_ARCHS[sdk=iphoneos*]: x86_64
-        ENABLE_BITCODE: false
-        ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES: false
-        SKIP_INSTALL: true
-    dependencies:
-      - sdk: WidgetKit.framework

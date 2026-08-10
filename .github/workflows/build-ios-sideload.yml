@@ -1,0 +1,172 @@
+name: Build iOS sideload IPA
+
+# Produces an UNSIGNED universal IPA for SideStore/AltStore, which re-sign it
+# on-device with the user's own free Apple ID.
+#
+# This deliberately runs on a GitHub-hosted macOS runner rather than a
+# self-hosted Mac. Signing an iOS app in CI with a free personal team is not
+# workable: `codesign` needs the login keychain unlocked inside a GUI (Aqua)
+# security session, so it fails with errSecInternalComponent from ssh and from a
+# LaunchAgent alike, and a personal team's provisioning profile expires after 7
+# days regardless. Building unsigned sidesteps all of it -- and the 7-day
+# re-signing becomes SideStore's job, on the device, with no computer involved.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'apps/readest-app/**'
+      - 'packages/**'
+      - 'scripts/sideload/**'
+      - '.github/workflows/build-ios-sideload.yml'
+
+permissions:
+  contents: write   # create the release that SideStore's source feed points at
+
+concurrency:
+  group: ios-sideload
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install Rust iOS target
+        run: rustup target add aarch64-apple-ios
+
+      # Keyed on the lockfile + Cargo.lock; a warm cache turns a ~40 min cold
+      # build into a few minutes.
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/readest-app/src-tauri
+          key: ios-sideload
+
+      - name: Install build tools
+        run: |
+          brew install xcodegen
+          # cargo-mobile2 gates `tauri ios init` on libimobiledevice being
+          # present, even though only `tauri ios dev` actually uses it.
+          brew install libimobiledevice
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile --prefer-offline
+
+      - name: Build unsigned IPA
+        run: scripts/sideload/build-unsigned-ipa.sh "$RUNNER_TEMP/readest-selfhost.ipa"
+
+      - name: Read version
+        id: v
+        run: |
+          v=$(node -p "require('./apps/readest-app/package.json').version")
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+          echo "tag=sideload-v$v-${{ github.run_number }}" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: readest-selfhost-ios-unsigned
+          path: ${{ runner.temp }}/readest-selfhost.ipa
+          retention-days: 14
+
+      # The AltSource feed SideStore subscribes to. Both this and the IPA are
+      # attached to every release, and GitHub's /releases/latest/download/<asset>
+      # path is a permanent redirect to whichever release is newest -- so the
+      # subscribed URL never changes and no separate hosting is needed.
+      - name: Generate SideStore source feed
+        env:
+          REPO_URL: ${{ github.server_url }}/${{ github.repository }}
+          VERSION: ${{ steps.v.outputs.version }}
+        run: |
+          python3 - <<'PY'
+          import json, os, pathlib, subprocess
+
+          repo = os.environ["REPO_URL"]
+          version = os.environ["VERSION"]
+          ipa = pathlib.Path(os.environ["RUNNER_TEMP"]) / "readest-selfhost.ipa"
+          latest = f"{repo}/releases/latest/download"
+          date = subprocess.run(["date", "-u", "+%Y-%m-%d"],
+                                capture_output=True, text=True).stdout.strip()
+
+          entry = {
+              "version": version,
+              "buildVersion": os.environ.get("GITHUB_RUN_NUMBER", "1"),
+              "date": date,
+              "size": ipa.stat().st_size,
+              "downloadURL": f"{latest}/readest-selfhost.ipa",
+              "localizedDescription": "Unsigned build for sideloading; "
+                                      "point it at your own Readest instance.",
+              "minOSVersion": "15.0",
+          }
+          app = {
+              "name": "Readest Selfhost",
+              "bundleIdentifier": "com.readest.selfhost.sideload",
+              "developerName": "Self-hosted build",
+              "subtitle": "Ebook reader synced to your own server",
+              "localizedDescription": (
+                  "Readest, built from the self-hosted fork so it can point at your "
+                  "own sync backend instead of Readest Cloud. Enter your server URL "
+                  "on first launch; the client discovers the API and Supabase "
+                  "endpoints from it automatically."
+              ),
+              "iconURL": ("https://raw.githubusercontent.com/ankitson/readest-self-hosted/"
+                          "main/apps/readest-app/src-tauri/icons/ios/AppIcon-512%402x.png"),
+              "tintColor": "7A4B2A",
+              "category": "reading",
+              # SideStore reads the top-level downloadURL even when `versions` is
+              # present, and errors out without it (SideStore#735).
+              "downloadURL": entry["downloadURL"],
+              "version": entry["version"],
+              "versionDate": entry["date"],
+              "size": entry["size"],
+              "versions": [entry],
+              "appPermissions": {"entitlements": [], "privacy": {}},
+          }
+          # `marketplaceID` is deliberately absent: its presence makes SideStore
+          # treat the source as an EU notarized marketplace source.
+          feed = {
+              "name": "Readest Selfhost",
+              "subtitle": "Self-hosted Readest builds",
+              "description": "Unsigned iOS builds of the self-hosted Readest fork.",
+              "website": repo,
+              "tintColor": "7A4B2A",
+              "apps": [app],
+              "news": [],
+          }
+          out = pathlib.Path(os.environ["RUNNER_TEMP"]) / "source.json"
+          out.write_text(json.dumps(feed, indent=2) + "\n")
+          print(f"feed written: {out} ({entry['size']} byte IPA)")
+          PY
+
+      # The release is the stable, public download URL the SideStore source feed
+      # advertises. The IPA carries no secrets: the server URL is entered by the
+      # user at runtime and discovered via /.well-known, never baked in.
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${{ steps.v.outputs.tag }}" \
+            "$RUNNER_TEMP/readest-selfhost.ipa#Readest Selfhost (unsigned IPA)" \
+            "$RUNNER_TEMP/source.json#SideStore source feed" \
+            --title "Readest Selfhost iOS ${{ steps.v.outputs.version }}" \
+            --latest \
+            --notes "Unsigned universal IPA for SideStore/AltStore.
+
+          Install via SideStore, which signs it on-device with your own Apple ID
+          and re-signs it automatically before the 7-day certificate expires.
+
+          - version: ${{ steps.v.outputs.version }}
+          - commit: ${{ github.sha }}
+          - devices: iPhone + iPad (UIDeviceFamily 1,2)
+
+          Point the app at your own Readest instance on first launch."
