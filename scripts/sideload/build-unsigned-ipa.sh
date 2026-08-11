@@ -110,8 +110,13 @@ app="$(ls -d "$DERIVED/Build/Products/release-iphoneos/"*.app | head -1)"
 # to invalidate; the sideload signer signs afterwards.
 if [ -n "${SIDELOAD_BUILD_NUMBER:-}" ]; then
   short="$(plutil -extract CFBundleShortVersionString raw -o - "$app/Info.plist")"
-  plutil -replace CFBundleVersion -string "$short.$SIDELOAD_BUILD_NUMBER" "$app/Info.plist"
-  echo "    CFBundleVersion -> $short.$SIDELOAD_BUILD_NUMBER"
+  # Apple allows CFBundleVersion at most three period-separated integers, so the
+  # CI run number takes the third component rather than being appended as a
+  # fourth (0.11.21.N was accepted by iOS but is not a valid build version).
+  # major.minor come from the app's own short version.
+  major="${short%%.*}"; rest="${short#*.}"; minor="${rest%%.*}"
+  plutil -replace CFBundleVersion -string "$major.$minor.$SIDELOAD_BUILD_NUMBER" "$app/Info.plist"
+  echo "    CFBundleVersion -> $major.$minor.$SIDELOAD_BUILD_NUMBER"
 fi
 
 work="$(mktemp -d)"
