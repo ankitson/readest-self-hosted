@@ -33,6 +33,8 @@ jobs:
     env:
       BUILD_ARGS: |
         NEXT_PUBLIC_APP_PLATFORM=web
+        NEXT_PUBLIC_BUILD_COMMIT=${{ github.sha }}
+        NEXT_PUBLIC_BUILD_REPO=${{ github.repository }}
     steps:
       - name: Prepare platform pair
         run: |

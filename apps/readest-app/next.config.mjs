@@ -20,9 +20,14 @@ const gitOut = (cmd) => {
   }
 };
 
-const inCI = Boolean(process.env['GITHUB_SHA']);
+// A Docker build has neither a git checkout nor the workflow's GITHUB_* env, so
+// the values can also be passed in explicitly as build args.
+const explicitCommit = process.env['NEXT_PUBLIC_BUILD_COMMIT'];
+const explicitRepo = process.env['NEXT_PUBLIC_BUILD_REPO'];
+
+const inCI = Boolean(process.env['GITHUB_SHA'] || explicitCommit);
 const buildCommit = (() => {
-  const sha = process.env['GITHUB_SHA'] || gitOut('git rev-parse HEAD');
+  const sha = explicitCommit || process.env['GITHUB_SHA'] || gitOut('git rev-parse HEAD');
   if (!sha) return '';
   const short = sha.slice(0, 7);
   // Only meaningful locally: CI legitimately patches tracked files (identity,
@@ -31,6 +36,7 @@ const buildCommit = (() => {
   return !inCI && gitOut('git status --porcelain') ? `${short}-dirty` : short;
 })();
 const buildRepo =
+  explicitRepo ||
   process.env['GITHUB_REPOSITORY'] ||
   gitOut('git remote get-url origin').match(/[:/]([^/:]+\/[^/]+?)(?:\.git)?$/)?.[1] ||
   '';

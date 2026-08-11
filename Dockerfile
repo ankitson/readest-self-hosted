@@ -39,6 +39,10 @@ ARG NEXT_PUBLIC_API_BASE_URL
 ARG NEXT_PUBLIC_OBJECT_STORAGE_TYPE
 ARG NEXT_PUBLIC_STORAGE_FIXED_QUOTA
 ARG NEXT_PUBLIC_TRANSLATION_FIXED_QUOTA
+# Build provenance for the About dialog. Unlike the native builds there is no
+# git checkout in here, so these must be supplied by the caller.
+ARG NEXT_PUBLIC_BUILD_COMMIT
+ARG NEXT_PUBLIC_BUILD_REPO
 COPY --from=dependencies /app/node_modules /app/node_modules
 COPY --from=dependencies /app/apps/readest-app/node_modules /app/apps/readest-app/node_modules
 COPY --from=dependencies /app/apps/readest-app/public/vendor /app/apps/readest-app/public/vendor
