@@ -124,13 +124,21 @@ app="$(ls -d "$DERIVED/Build/Products/release-iphoneos/"*.app | head -1)"
 # to invalidate; the sideload signer signs afterwards.
 if [ -n "${SIDELOAD_BUILD_NUMBER:-}" ]; then
   short="$(plutil -extract CFBundleShortVersionString raw -o - "$app/Info.plist")"
-  # Apple allows CFBundleVersion at most three period-separated integers, so the
-  # CI run number takes the third component rather than being appended as a
-  # fourth (0.11.21.N was accepted by iOS but is not a valid build version).
-  # major.minor come from the app's own short version.
   major="${short%%.*}"; rest="${short#*.}"; minor="${rest%%.*}"
-  plutil -replace CFBundleVersion -string "$major.$minor.$SIDELOAD_BUILD_NUMBER" "$app/Info.plist"
-  echo "    CFBundleVersion -> $major.$minor.$SIDELOAD_BUILD_NUMBER"
+  stamped="$major.$minor.$SIDELOAD_BUILD_NUMBER"
+
+  # BOTH fields get the run number, because SideStore decides whether an update
+  # exists from CFBundleShortVersionString alone. Its InstalledApp.hasUpdate
+  # parses each side as semver and compares major.minor.patch; buildVersion is
+  # only ever displayed ("0.11.21 (0.11.10)") and used for identity, never for
+  # the comparison. Leaving the short version pinned to upstream's meant every
+  # build looked identical to the installed one and no update was ever offered.
+  #
+  # Apple allows at most three period-separated integers in either field, so the
+  # run number takes the third component rather than being appended as a fourth.
+  plutil -replace CFBundleShortVersionString -string "$stamped" "$app/Info.plist"
+  plutil -replace CFBundleVersion -string "$stamped" "$app/Info.plist"
+  echo "    version -> $stamped (short and build, from upstream $short)"
 fi
 
 work="$(mktemp -d)"
