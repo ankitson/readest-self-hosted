@@ -1,9 +1,39 @@
 import withSerwistInit from '@serwist/next';
 import withBundleAnalyzer from '@next/bundle-analyzer';
 import path from 'node:path';
+import { execSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+// Build provenance surfaced in the About dialog. Derived here rather than in
+// each build script so every path picks it up -- the iOS sideload build,
+// `tauri build` for desktop, and the Docker image. CI env wins; git is the
+// local fallback.
+const gitOut = (cmd) => {
+  try {
+    return execSync(cmd, { cwd: __dirname, stdio: ['ignore', 'pipe', 'ignore'] })
+      .toString()
+      .trim();
+  } catch {
+    return '';
+  }
+};
+
+const inCI = Boolean(process.env['GITHUB_SHA']);
+const buildCommit = (() => {
+  const sha = process.env['GITHUB_SHA'] || gitOut('git rev-parse HEAD');
+  if (!sha) return '';
+  const short = sha.slice(0, 7);
+  // Only meaningful locally: CI legitimately patches tracked files (identity,
+  // updater endpoint) before the frontend build, so every CI build would
+  // otherwise be tagged dirty.
+  return !inCI && gitOut('git status --porcelain') ? `${short}-dirty` : short;
+})();
+const buildRepo =
+  process.env['GITHUB_REPOSITORY'] ||
+  gitOut('git remote get-url origin').match(/[:/]([^/:]+\/[^/]+?)(?:\.git)?$/)?.[1] ||
+  '';
 
 const isDev = process.env['NODE_ENV'] === 'development';
 const appPlatform = process.env['NEXT_PUBLIC_APP_PLATFORM'];
@@ -27,6 +57,10 @@ const nextConfig = {
   // The Docker production image opts into a self-contained `.next/standalone`
   // tree (see Dockerfile) so it can ship only the traced runtime; all other
   // web builds fall back to the default server output.
+  env: {
+    NEXT_PUBLIC_BUILD_COMMIT: buildCommit,
+    NEXT_PUBLIC_BUILD_REPO: buildRepo,
+  },
   output: exportOutput ? 'export' : standaloneOutput ? 'standalone' : undefined,
   // Emit browser source maps for the Tauri export build so Sentry can
   // symbolicate crashes. `scripts/upload-sourcemaps.mjs` uploads them after the

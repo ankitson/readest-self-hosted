@@ -6,6 +6,7 @@ import { useSettingsStore } from '@/store/settingsStore';
 import { checkForAppUpdates, checkAppReleaseNotes } from '@/helpers/updater';
 import { parseWebViewInfo } from '@/utils/ua';
 import { getAppVersion } from '@/utils/version';
+import { getBuildInfo, getBuildCommitUrl } from '@/utils/build';
 import SupportLinks from './SupportLinks';
 import LegalLinks from './LegalLinks';
 import Dialog from './Dialog';
@@ -25,6 +26,7 @@ type UpdateStatus = 'checking' | 'updating' | 'updated' | 'error';
 
 export const AboutWindow = () => {
   const _ = useTranslation();
+  const buildInfo = getBuildInfo();
   const { appService } = useEnv();
   const { settings } = useSettingsStore();
   const [updateStatus, setUpdateStatus] = useState<UpdateStatus | null>(null);
@@ -99,6 +101,13 @@ export const AboutWindow = () => {
               <p className='text-neutral-content text-center text-sm'>
                 {_('Version {{version}}', { version: getAppVersion() })} {`(${browserInfo})`}
               </p>
+              {buildInfo && (
+                <p className='text-neutral-content mt-1 text-center text-xs'>
+                  <Link href={getBuildCommitUrl(buildInfo)} className='text-blue-500 underline'>
+                    {`${buildInfo.repo}@${buildInfo.commit}`}
+                  </Link>
+                </p>
+              )}
             </div>
             <div className='my-1 h-5'>
               {!updateStatus && (
