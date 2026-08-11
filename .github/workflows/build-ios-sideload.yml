@@ -170,7 +170,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "${{ steps.v.outputs.tag }}" \
+          gh release create "${{ steps.v.outputs.tag }}" --target "$GITHUB_SHA" \
             "$RUNNER_TEMP/readest-selfhost.ipa#Readest Selfhost (unsigned IPA)" \
             "$RUNNER_TEMP/source.json#SideStore source feed" \
             --title "Readest Selfhost iOS ${{ steps.v.outputs.version }}" \

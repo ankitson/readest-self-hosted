@@ -141,8 +141,14 @@ jobs:
           # iOS sideload release -- see .github/workflows/build-ios-sideload.yml.
           if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             gh release edit "$tag" --repo "$GITHUB_REPOSITORY" --title "$title" --notes "$notes" --latest=false
+            # `gh release edit` does not move the underlying tag, so a rolling
+            # release keeps pointing at whatever commit first created it. Move it
+            # explicitly, or the release page credits a stale commit.
+            gh api --method PATCH "repos/$GITHUB_REPOSITORY/git/refs/tags/$tag" \
+              -f sha="$GITHUB_SHA" -F force=true >/dev/null
           else
-            gh release create "$tag" --repo "$GITHUB_REPOSITORY" --title "$title" --notes "$notes" --latest=false
+            gh release create "$tag" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
+              --title "$title" --notes "$notes" --latest=false
           fi
           # Filenames embed the version, which changes per run, so --clobber alone
           # would leave every previous build's assets behind in this rolling release.
