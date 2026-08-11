@@ -54,6 +54,20 @@ if [ ! -f "$plist" ]; then
 fi
 test -f "$plist"
 
+# `tauri ios init` scaffolds Assets.xcassets from cargo-mobile2's template, whose
+# AppIcon is the Tauri logo -- and gen/apple is gitignored, so the repo's real
+# icons never reach the build. The 18 files in src-tauri/icons/ios are named
+# exactly as the generated AppIcon.appiconset/Contents.json expects, so copying
+# them over the placeholders is enough. (The Android job does the equivalent via
+# `pnpm tauri icon`.)
+iconset=src-tauri/gen/apple/Assets.xcassets/AppIcon.appiconset
+if [ -d "$iconset" ] && [ -d src-tauri/icons/ios ]; then
+  cp src-tauri/icons/ios/*.png "$iconset"/
+  echo "    app icons: copied $(ls src-tauri/icons/ios/*.png | wc -l | tr -d ' ') files over the Tauri placeholders"
+else
+  echo "::warning::icon source or appiconset missing; shipping placeholder icons"
+fi
+
 echo "==> [5/7] strip un-provisionable capabilities, set sideload identity"
 python3 "$REPO/scripts/sideload/prepare-project.py"
 ( cd src-tauri/gen/apple && xcodegen generate >/dev/null && echo "    Xcode project regenerated" )
