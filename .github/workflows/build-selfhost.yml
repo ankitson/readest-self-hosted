@@ -37,7 +37,10 @@ env:
   SELFHOST_APP_IDENTIFIER: com.readest.selfhost
   # Public certificate digest already deployed in the selfhost-v0.11.2 APKs.
   SELFHOST_ANDROID_CERT_SHA256: 903bf29bdf76ec24766e48eb8eafc0f0d228572be347008956b3f6aa63d753be
-  TAURI_UPDATER_ENDPOINT: https://github.com/${{ github.repository }}/releases/latest/download/latest.json
+  # Fixed rolling tag, NOT /releases/latest/: the Latest badge belongs to the
+  # iOS sideload release (SideStore's feed resolves through it), which carries
+  # no updater manifest.
+  TAURI_UPDATER_ENDPOINT: https://github.com/${{ github.repository }}/releases/download/desktop-latest/latest.json
   SELFHOST_RELEASE_VERSION: ${{ inputs.release_version }}
   NODE_OPTIONS: --max-old-space-size=8192
 

@@ -29,6 +29,12 @@ concurrency:
 jobs:
   build:
     uses: ./.github/workflows/build-selfhost.yml
+    # Every build otherwise ships package.json's fixed 0.11.21-selfhost.1, and
+    # Tauri's updater compares semver -- an equal version means no update is ever
+    # offered. The run number makes each build strictly newer by semver
+    # precedence (selfhost.9 > selfhost.1).
+    with:
+      release_version: 0.11.21-selfhost.${{ github.run_number }}
     secrets: inherit
 
   publish:
@@ -55,6 +61,60 @@ jobs:
           fi
           echo "assets to publish:"
           ls -la release-assets
+
+      # The updater manifest. Tauri fetches this, compares `version` against the
+      # running app, then downloads the matching platform URL and verifies its
+      # signature against the pubkey baked into the build.
+      - name: Generate updater manifest
+        env:
+          REPO: ${{ github.repository }}
+          VERSION: 0.11.21-selfhost.${{ github.run_number }}
+        run: |
+          python3 - <<'PY'
+          import json, os, pathlib, subprocess
+
+          assets = pathlib.Path("release-assets")
+          base = f"https://github.com/{os.environ['REPO']}/releases/download/desktop-latest"
+
+          # suffix -> tauri platform keys. macOS ships one universal bundle, so
+          # both darwin arches point at it.
+          WANTED = [
+              ("universal.app.tar.gz", ["darwin-aarch64", "darwin-x86_64"]),
+              ("x64-setup.exe",        ["windows-x86_64"]),
+              ("arm64-setup.exe",      ["windows-aarch64"]),
+              ("amd64.AppImage",       ["linux-x86_64"]),
+              ("aarch64.AppImage",     ["linux-aarch64"]),
+          ]
+
+          platforms = {}
+          for suffix, keys in WANTED:
+              hit = next((f for f in assets.iterdir()
+                          if f.name.endswith(suffix) and not f.name.endswith(".sig")), None)
+              if not hit:
+                  print(f"::warning::no artifact for {suffix}; skipping {keys}")
+                  continue
+              sig = hit.with_name(hit.name + ".sig")
+              if not sig.exists():
+                  print(f"::warning::{hit.name} has no .sig; skipping {keys}")
+                  continue
+              entry = {"signature": sig.read_text().strip(), "url": f"{base}/{hit.name}"}
+              for k in keys:
+                  platforms[k] = entry
+
+          if not platforms:
+              raise SystemExit("::error::no signed artifacts found; refusing to publish an empty manifest")
+
+          date = subprocess.run(["date", "-u", "+%Y-%m-%dT%H:%M:%SZ"],
+                                capture_output=True, text=True).stdout.strip()
+          manifest = {
+              "version": os.environ["VERSION"],
+              "notes": "Automatic build from main.",
+              "pub_date": date,
+              "platforms": platforms,
+          }
+          (assets / "latest.json").write_text(json.dumps(manifest, indent=2) + "\n")
+          print("manifest covers:", ", ".join(sorted(platforms)))
+          PY
 
       - name: Publish to the rolling desktop release
         env:
@@ -84,5 +144,11 @@ jobs:
           else
             gh release create "$tag" --repo "$GITHUB_REPOSITORY" --title "$title" --notes "$notes" --latest=false
           fi
+          # Filenames embed the version, which changes per run, so --clobber alone
+          # would leave every previous build's assets behind in this rolling release.
+          gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json assets \
+            --jq '.assets[].name' 2>/dev/null | while read -r old; do
+              [ -n "$old" ] && gh release delete-asset "$tag" "$old" --repo "$GITHUB_REPOSITORY" --yes || true
+            done
           gh release upload "$tag" --repo "$GITHUB_REPOSITORY" release-assets/* --clobber
           echo "published $(ls release-assets | wc -l) assets to $tag"
