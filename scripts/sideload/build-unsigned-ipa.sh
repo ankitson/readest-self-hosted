@@ -34,6 +34,26 @@ pnpm --filter @readest/readest-app setup-vendors
 echo "==> [2/7] fork self-host patch"
 pnpm patch-tauri-selfhost
 
+# Do this BEFORE the frontend build and before `tauri ios init`: the About
+# dialog renders package.json's version through getAppVersion(), and
+# tauri.conf.json sets "version": "../package.json", so overriding it here is
+# what makes the in-app version, the generated Info.plist and the SideStore feed
+# all agree. Stamping only the built Info.plist afterwards left About showing
+# upstream's 0.11.21-selfhost.1 while SideStore showed 0.11.<run>.
+if [ -n "${SIDELOAD_BUILD_NUMBER:-}" ]; then
+  node - "$SIDELOAD_BUILD_NUMBER" <<'NODE'
+const fs = require('node:fs');
+const run = process.argv[2];
+const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+// Keep upstream's major.minor; the run number owns the patch. iOS allows at
+// most three integers and no prerelease tag in CFBundleShortVersionString.
+const [major, minor] = pkg.version.split('.');
+pkg.version = `${major}.${minor}.${run}`;
+fs.writeFileSync('package.json', `${JSON.stringify(pkg, null, 2)}\n`);
+console.log(`    app version -> ${pkg.version}`);
+NODE
+fi
+
 echo "==> [3/7] frontend production build"
 pnpm build
 
