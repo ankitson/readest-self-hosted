@@ -33,11 +33,10 @@ jobs:
 
   publish:
     needs: build
-    # Publish whatever built. The Android job fails by design here: the fork pins
-    # luoji12103's own keystore certificate ("Android keystore certificate does
-    # not match the pinned selfhost certificate") and our keystore is ours, so it
-    # can never match. We do not ship Android, and one failing matrix leg must not
-    # withhold the macOS and Windows builds.
+    # Publish whatever built, rather than demanding the whole matrix be green.
+    # A skipped job (build-android is gated off in build-selfhost.yml) or one
+    # failing platform must not withhold the artifacts that did build. The step
+    # itself fails if NOTHING was produced.
     if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     steps:

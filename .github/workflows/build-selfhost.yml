@@ -526,6 +526,12 @@ jobs:
           if-no-files-found: error
 
   build-android:
+    # Disabled: we do not ship Android, and this job cannot pass in this fork
+    # regardless -- it pins luoji12103's keystore certificate and ours is ours
+    # ("Android keystore certificate does not match the pinned selfhost
+    # certificate"), so it painted every desktop run red. Gated rather than
+    # deleted so the nightly upstream sync keeps merging cleanly.
+    if: false
     runs-on: ubuntu-latest
     timeout-minutes: 120
     steps:
