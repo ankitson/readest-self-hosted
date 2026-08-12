@@ -53,8 +53,11 @@ vi.mock('@/utils/version', async () => {
   };
 });
 
+// A factory with no importOriginal REPLACES the module, so every export the
+// code under test imports has to be listed here or it fails at import time.
 vi.mock('@/services/constants', () => ({
   CHECK_UPDATE_INTERVAL_SEC: 86400,
+  UPDATE_CHECK_RETRY_SEC: 900,
   READEST_UPDATER_FILE: 'https://example.com/latest.json',
   READEST_CHANGELOG_FILE: 'https://example.com/release-notes.json',
   READEST_NIGHTLY_UPDATER_FILE: 'https://example.com/nightly/latest.json',
@@ -337,6 +340,43 @@ describe('updater', () => {
       );
 
       await expect(checkForAppUpdates(dummyTranslate, true)).resolves.toBe(false);
+    });
+
+    test('a failed check does not consume the interval, it only arms the retry floor', async () => {
+      // Regression: the timestamp used to be written before the network call, so
+      // it recorded the attempt rather than a reached host. One check made while
+      // offline then suppressed every retry for a full interval — silently, since
+      // auto-check failures are deliberately swallowed above.
+      mockOsType.mockReturnValue('macos');
+      mockCheck.mockRejectedValue(new Error('offline'));
+
+      await expect(checkForAppUpdates(dummyTranslate, true)).resolves.toBe(false);
+      expect(mockCheck).toHaveBeenCalledTimes(1);
+      expect(localStorage.getItem('lastAppUpdateCheck')).toBeNull();
+
+      // Straight after the failure: held off by the retry floor, not the interval.
+      await checkForAppUpdates(dummyTranslate, true);
+      expect(mockCheck).toHaveBeenCalledTimes(1);
+
+      // Once that floor passes it tries again, even though the full interval has
+      // not elapsed. This is the assertion that fails under the old behaviour.
+      localStorage.setItem('lastAppUpdateAttempt', (Date.now() - 900 * 1000 - 1000).toString());
+      mockCheck.mockResolvedValue(null);
+      await checkForAppUpdates(dummyTranslate, true);
+      expect(mockCheck).toHaveBeenCalledTimes(2);
+      expect(localStorage.getItem('lastAppUpdateCheck')).not.toBeNull();
+    });
+
+    test('treats a backwards clock jump as due rather than wedging checks off', async () => {
+      // A future stamp (timezone fix, NTP correction, dual boot) would otherwise
+      // block every check until real time caught up with it.
+      localStorage.setItem('lastAppUpdateCheck', (Date.now() + 7 * 86400 * 1000).toString());
+      mockOsType.mockReturnValue('macos');
+      mockCheck.mockResolvedValue(null);
+
+      await checkForAppUpdates(dummyTranslate, true);
+
+      expect(mockCheck).toHaveBeenCalled();
     });
 
     test('returns false for unsupported OS types', async () => {
