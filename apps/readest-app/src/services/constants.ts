@@ -889,9 +889,18 @@ export const READEST_OPDS_USER_AGENT = 'Readest/1.0 (OPDS Browser)';
 export const SYNC_PROGRESS_INTERVAL_SEC = 3;
 export const SYNC_NOTES_INTERVAL_SEC = 5;
 export const SYNC_BOOKS_INTERVAL_SEC = 5;
-// Also the period of the in-app re-check timer (library/reader pages), so a
-// long-running window notices a release without being restarted.
+// How stale a successful check must be before another one is due. This is the
+// real schedule: it is persisted, so it survives sleep, quit and reboot.
 export const CHECK_UPDATE_INTERVAL_SEC = 4 * 60 * 60;
+// How often a running app re-evaluates whether a check is due. Deliberately
+// much shorter than the interval above: a timer is only an *opportunity* to
+// ask, never the schedule itself. Firing on the same period as the interval
+// means one deferred tick (sleep, throttled background tab) silently doubles
+// the effective cadence.
+export const UPDATE_CHECK_POLL_SEC = 30 * 60;
+// Floor between attempts once a check is overdue, so an offline app retries
+// soon without hammering the release host.
+export const UPDATE_CHECK_RETRY_SEC = 15 * 60;
 
 export const MAX_ZOOM_LEVEL = 500;
 export const MIN_ZOOM_LEVEL = 50;

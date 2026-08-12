@@ -26,8 +26,7 @@ import { isReadestCloudStorageActive } from '@/services/sync/cloudSyncProvider';
 import { getDirPath, getFilename, joinPaths } from '@/utils/path';
 import { parseOpenWithFiles } from '@/helpers/openWith';
 import { isTauriAppPlatform, isWebAppPlatform } from '@/services/environment';
-import { checkForAppUpdates, checkAppReleaseNotes } from '@/helpers/updater';
-import { CHECK_UPDATE_INTERVAL_SEC } from '@/services/constants';
+import { useAutoUpdateCheck } from '@/hooks/useAutoUpdateCheck';
 import { impactFeedback } from '@tauri-apps/plugin-haptics';
 import { getCurrentWebview } from '@tauri-apps/api/webview';
 
@@ -425,25 +424,14 @@ const LibraryPageContent = ({ searchParams }: { searchParams: ReadonlyURLSearchP
     enabled: !!appService?.isAndroidApp && !!currentGroupPath,
   });
 
+  useAutoUpdateCheck();
+
   useEffect(() => {
-    const doCheckAppUpdates = async () => {
-      if (appService?.hasUpdater && settings.autoCheckUpdates) {
-        await checkForAppUpdates(_, true, settings.updateChannel);
-      } else if (appService?.hasUpdater === false) {
-        checkAppReleaseNotes();
-      }
-    };
     if (settings.alwaysOnTop) {
       tauriHandleSetAlwaysOnTop(settings.alwaysOnTop);
     }
-    doCheckAppUpdates();
-    // Mount-time alone means an app left open for days never notices a release.
-    // checkForAppUpdates throttles on the same constant, so this re-check costs
-    // nothing when one has already happened recently.
-    const updateCheckTimer = setInterval(doCheckAppUpdates, CHECK_UPDATE_INTERVAL_SEC * 1000);
-    return () => clearInterval(updateCheckTimer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [appService?.hasUpdater, settings]);
+  }, [settings]);
 
   useEffect(() => {
     if (appService?.isMobileApp) {

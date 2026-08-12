@@ -10,13 +10,40 @@ import { isTauriAppPlatform } from '@/services/environment';
 import { getAppVersion, isUpdateNewer } from '@/utils/version';
 import {
   CHECK_UPDATE_INTERVAL_SEC,
+  UPDATE_CHECK_RETRY_SEC,
   READEST_CHANGELOG_FILE,
   READEST_UPDATER_FILE,
   READEST_NIGHTLY_UPDATER_FILE,
 } from '@/services/constants';
 import { getAndroidUpdatePlatform } from '@/helpers/androidUpdatePlatform';
 
+// Last check that actually reached the release host. Recording the *attempt*
+// here instead would mean one failed check (offline, host down) suppresses
+// every retry for a full interval.
 const LAST_CHECK_KEY = 'lastAppUpdateCheck';
+const LAST_ATTEMPT_KEY = 'lastAppUpdateAttempt';
+
+const readStamp = (key: string): number => {
+  const raw = localStorage.getItem(key);
+  if (!raw) return 0;
+  const parsed = parseInt(raw, 10);
+  return Number.isFinite(parsed) ? parsed : 0;
+};
+
+/**
+ * Whether an automatic check is due, from persisted state alone — never from
+ * whether a timer happened to fire. Callers may therefore ask as often as they
+ * like (startup, poll, window re-focus, network restored).
+ */
+const isAutoCheckDue = (now: number): boolean => {
+  const lastSuccess = readStamp(LAST_CHECK_KEY);
+  const lastAttempt = readStamp(LAST_ATTEMPT_KEY);
+  // A clock moved backwards (timezone fix, NTP correction, dual boot) leaves a
+  // future timestamp that would otherwise wedge checks off until it catches up.
+  if (now < lastSuccess || now < lastAttempt) return true;
+  if (now - lastSuccess < CHECK_UPDATE_INTERVAL_SEC * 1000) return false;
+  return now - lastAttempt >= UPDATE_CHECK_RETRY_SEC * 1000;
+};
 
 const showUpdateWindow = (latestVersion: string, scrollBarStyle: ScrollBarStyle) => {
   const win = new WebviewWindow('updater', {
@@ -141,15 +168,16 @@ export const checkForAppUpdates = async (
   isAutoCheck = true,
   updateChannel: 'stable' | 'nightly' = 'stable',
 ): Promise<boolean> => {
-  const lastCheck = localStorage.getItem(LAST_CHECK_KEY);
   const now = Date.now();
-  if (isAutoCheck && lastCheck && now - parseInt(lastCheck, 10) < CHECK_UPDATE_INTERVAL_SEC * 1000)
-    return false;
-  localStorage.setItem(LAST_CHECK_KEY, now.toString());
+  if (isAutoCheck && !isAutoCheckDue(now)) return false;
+  localStorage.setItem(LAST_ATTEMPT_KEY, now.toString());
 
   console.log('Checking for updates', { updateChannel });
   const OS_TYPE = osType();
 
+  // The try block has several early returns; a flag plus `finally` records the
+  // success stamp on every one of them without restructuring the control flow.
+  let reachedReleaseHost = true;
   try {
     if (updateChannel === 'nightly') {
       const platformKey = getNightlyPlatformKey(
@@ -195,6 +223,7 @@ export const checkForAppUpdates = async (
 
     return false;
   } catch (err) {
+    reachedReleaseHost = false;
     // Update checks are best-effort: they fail routinely when offline or when
     // the release host is unreachable. An auto-check runs fire-and-forget on
     // mount, so throwing here becomes an unhandled rejection (READEST-J desktop
@@ -203,6 +232,11 @@ export const checkForAppUpdates = async (
     console.warn('Update check failed', err);
     if (!isAutoCheck) throw err;
     return false;
+  } finally {
+    // Only a check that actually reached the host resets the interval. A failed
+    // one leaves the old stamp in place, so the retry floor decides when to try
+    // again rather than suppressing checks for a further full interval.
+    if (reachedReleaseHost) localStorage.setItem(LAST_CHECK_KEY, Date.now().toString());
   }
 };
 
