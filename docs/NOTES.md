@@ -1,5 +1,27 @@
 ## 2026-08-13
 
+### Durable Readest metadata and cover follow-up
+
+#### Root cause
+
+- The library labeled the general `books.updated_at` timestamp as “Date Read”, so manual metadata edits changed the sort order.
+- Although the server schema had `metadata_updated_at`, the field was absent from app types, API transforms, and merge rules. A connected client therefore reverted five server-side corrections after the original apply.
+
+#### Resolution
+
+- Added `last_read_at` as a dedicated reading clock and changed Date Read sorting, recent shelves, grouping, and progress writes to use it.
+- Wired `metadata_updated_at` end to end and made metadata edits advance only that field.
+- Kept the five books' general row timestamps unchanged while assigning their historical Apple Books activity to `last_read_at`.
+- Extracted exact-file EPUB/PDF covers first, then used edition-specific web fallbacks. Applied and verified 33/33 cover repairs; all 191 live books now have a cover.
+
+#### Safety and verification
+
+- Captured and checksum-verified a fresh PostgreSQL/book snapshot before the follow-up and tagged the preceding image for rollback.
+- Verified the live image at commit `dfba5a6a` after migration 019: HTTP 200, zero restarts, clean startup logs.
+- Confirmed no changes to progress, reading status, notes, files, configs, statistics, or the five general row timestamps.
+- Confirmed an empty delayed metadata dry run after a client-sync window, eliminating the earlier stale-client reversion.
+- Passed 83 targeted app tests, 7 script tests, type checking, and targeted formatting checks. The full run passed 7,761 tests with 18 proofread-suite failures caused only by absent public Supabase test variables; those suites passed 63/63 when rerun with their expected public test configuration.
+
 ### Readest metadata normalization
 
 #### Outcome
@@ -10,15 +32,15 @@
 
 #### Timestamp decision
 
-- Readest's “Date Read” sort uses the general `books.updated_at` field.
-- One-off metadata writes therefore advance `metadata_updated_at` but preserve `updated_at`.
-- Five books previously moved by manual edits had `updated_at` restored from historical Apple Books activity.
+- At the time of the initial cleanup, Readest's “Date Read” sort used the general `books.updated_at` field.
+- The follow-up application fix now gives Date Read and metadata synchronization independent clocks.
+- Five books previously moved by manual edits use their historical Apple Books activity in the dedicated `last_read_at` field.
 
 #### Safety
 
 - Verified the pre-apply custom PostgreSQL dump and 191-book JSON snapshot by SHA-256.
 - Post-apply fingerprints prove progress, status, covers, reader configs, notes, files, and statistics are unchanged.
-- A post-apply dry run is empty, and no Readest image rebuild or deployment occurred.
+- The initial post-apply dry run was empty; a later client sync exposed the missing application-side metadata clock and prompted the durable follow-up deployment documented above.
 
 ### Apple Books selected cloud-download follow-up
 

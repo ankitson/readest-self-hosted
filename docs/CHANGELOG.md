@@ -1,10 +1,17 @@
 ## 2026-08-13
 
+### Durable metadata sync, Date Read, and cover backfill
+
+- Added independent `lastReadAt` and `metadataUpdatedAt` clocks so metadata edits and stale-client merges cannot change the Date Read sort.
+- Backfilled and preserved the source reading dates for the five manually edited books without rewriting their general row timestamps.
+- Added a guarded cover-backfill utility and supplied or repaired 33 covers, leaving all 191 live books with verified cover objects.
+- Built and deployed the fixed image with database migration 019; verified HTTP health, zero restarts, an empty delayed metadata dry run, and unchanged reading state, notes, files, configs, and statistics.
+
 ### Readest library metadata cleanup
 
 - Added an idempotent, guarded metadata-cleanup manifest and apply/verify command.
 - Normalized 61 titles, 52 subtitles, 42 author records, 21 identifiers, and 15 series records across 94 live books.
-- Restored the historical Date Read values for five manually edited books while preserving all other Date Read values.
+- Recorded the historical Date Read values for five manually edited books while preserving all other reading state.
 - Verified that reading state, covers, notes, files, configs, and statistics remained unchanged; no application image deployment was required.
 
 ### Apple Books downloaded-title follow-up
