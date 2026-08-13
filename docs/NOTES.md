@@ -1,5 +1,34 @@
 ## 2026-08-13
 
+### Apple Books full-library migration
+
+#### Outcome
+
+- Identified 199 actual Apple library items after excluding 166 synthetic series rows.
+- Staged and parsed all 178 local files: 156 EPUBs and 22 PDFs.
+- Reused three existing Readest editions and added 175 new books.
+- Migrated 1,496 highlights/notes and all 18 bookmarks; 35 unresolved ranges were safely skipped.
+- Preserved Apple metadata, progress, reading status, resume position, source dates, and last-read markers.
+
+#### Conflict and sync decisions
+
+- Existing Readest config/progress wins when newer than Apple's source state.
+- New configs use the migration timestamp for sync visibility while source dates remain under `metadata.appleBooks` and statistics markers.
+- A unique metadata-hash match attaches state to the existing Readest edition instead of duplicating the book.
+- Reading-history markers use zero duration so the migration does not invent time spent reading.
+
+#### Verification
+
+- 178/178 planned book rows and files verified.
+- 1,514/1,514 planned annotations/bookmarks verified.
+- 332/332 S3 objects verified at their indexed sizes.
+- The exact pre-bulk PostgreSQL and MinIO snapshot passed archive and SHA-256 validation.
+
+#### Remaining
+
+- Twenty-one Apple Store items are cloud-only and must be downloaded in Apple Books before their file packages can be validated and imported.
+- Seven exported highlights belong to those cloud-only books.
+
 ### Apple Books exporter and real-library migration validation
 
 #### Outcome

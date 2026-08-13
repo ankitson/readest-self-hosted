@@ -1,5 +1,13 @@
 ## 2026-08-13
 
+### Apple Books full-library migration tooling
+
+- Added a versioned full-library manifest and standards-compatible Apple EPUB packager.
+- Added a Readest-native planner for EPUB/PDF metadata, progress, status, resume positions, bookmarks, annotations, covers, and hashes.
+- Added an idempotent PostgreSQL/S3 migration command with dry-run mode and newer-Readest-state conflict preservation.
+- Added a post-apply verifier for planned rows, note identities, object presence, and byte sizes.
+- Migrated 178 locally available Apple items into Readest, adding 175 new books.
+
 ### Apple Books migration hardening
 
 - Added a required stable export timestamp so imported historical annotations cross Readest sync cursors.

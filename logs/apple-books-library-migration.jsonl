@@ -1,0 +1,9 @@
+{"date":"2026-08-13","check":"apple-library-inventory","database_rows":365,"series_containers_excluded":166,"library_items":199,"local_items":178,"epubs":156,"pdfs":22,"cloud_only":21,"result":"pass"}
+{"date":"2026-08-13","check":"file-staging","files":178,"bytes":1694320166,"failures":0,"result":"pass"}
+{"date":"2026-08-13","check":"readest-plan","parsed_books":178,"parse_failures":0,"annotations_total":1531,"annotations_located":1496,"annotations_unmatched":35,"bookmarks_total":18,"bookmarks_unmatched":0,"result":"pass"}
+{"date":"2026-08-13","check":"dry-run","selected_books":178,"new_books":175,"existing_exact_or_matched_books":3,"newer_readest_configs_preserved":3,"unresolved_metadata_collisions":0,"result":"pass"}
+{"date":"2026-08-13","check":"pre-bulk-backup","postgres_dump_verified":true,"minio_archive_verified":true,"checksums_verified":true,"result":"pass"}
+{"date":"2026-08-13","check":"bulk-apply","books":178,"new_books":175,"uploaded_objects":326,"planned_notes":1514,"result":"pass"}
+{"date":"2026-08-13","check":"post-apply-verification","book_rows_verified":178,"book_files_verified":178,"notes_verified":1514,"objects_verified":332,"missing_rows":0,"missing_files":0,"missing_notes":0,"missing_objects":0,"wrong_size_objects":0,"result":"pass"}
+{"date":"2026-08-13","check":"full-app-tests","test_files_passed":588,"test_files_skipped":4,"tests_passed":7773,"tests_skipped":8,"result":"pass"}
+{"date":"2026-08-13","check":"lint","commands":["tsgo --noEmit","biome lint ."],"files_checked":1789,"result":"pass"}
