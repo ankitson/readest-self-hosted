@@ -1,5 +1,12 @@
 ## 2026-08-13
 
+### Readest library metadata cleanup
+
+- Added an idempotent, guarded metadata-cleanup manifest and apply/verify command.
+- Normalized 61 titles, 52 subtitles, 42 author records, 21 identifiers, and 15 series records across 94 live books.
+- Restored the historical Date Read values for five manually edited books while preserving all other Date Read values.
+- Verified that reading state, covers, notes, files, configs, and statistics remained unchanged; no application image deployment was required.
+
 ### Apple Books downloaded-title follow-up
 
 - Added Apple FairPlay payload detection to prevent encrypted Store EPUBs from entering migration plans as apparently parseable books.
