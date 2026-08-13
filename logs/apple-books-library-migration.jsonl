@@ -15,3 +15,4 @@
 {"date":"2026-08-13","check":"selected-cloud-download-full-app-tests","test_files_passed":588,"test_files_skipped":4,"tests_passed":7774,"tests_skipped":8,"result":"pass"}
 {"date":"2026-08-13","check":"selected-cloud-download-lint","commands":["tsgo --noEmit","biome lint ."],"files_checked":1789,"result":"pass"}
 {"date":"2026-08-13","check":"selected-cloud-download-live-scope","live_books":191,"selected_readable_assets_present":3,"fairplay_assets_absent":2,"result":"pass"}
+{"date":"2026-08-13","check":"selected-cloud-download-live-deploy","build_commit":"2b27dfeb","container_running":true,"container_restarting":false,"restart_count":0,"http_status":200,"rollback_image":"ghcr.io/ankitson/readest:pre-fairplay-20260813","result":"pass"}

@@ -83,6 +83,8 @@ The initial post-apply verifier checked its plan against PostgreSQL and S3/MinIO
 
 The incremental verifier then checked 3/3 book rows, 3/3 book files, 1/1 annotation, and 6/6 indexed objects with zero failures. The library now has 191 live books in Readest: the prior live library plus 178 new Apple items.
 
+The invalid-XHTML recovery fix was built into the live web image at commit `2b27dfeb`. The replacement container serves HTTP 200 with zero restarts; `ghcr.io/ankitson/readest:pre-fairplay-20260813` preserves the preceding local image for rollback.
+
 ## Recovery and artifacts
 
 All artifacts live under:
