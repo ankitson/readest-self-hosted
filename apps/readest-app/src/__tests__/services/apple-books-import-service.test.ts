@@ -172,6 +172,25 @@ describe('locateAppleBooksAnnotationsInBook', () => {
     expect(result.notes[0]?.cfi).not.toBe(data.annotations[0]!.cfi);
   });
 
+  it('recovers selected text from invalid XHTML by reparsing it as HTML', async () => {
+    const data = makeExport();
+    data.annotations[0]!.cfi = 'epubcfi(/6/2[old]!/4/999:0)';
+    const invalidXhtml =
+      '<html xmlns="http://www.w3.org/1999/xhtml"><body><p>&ldquo;A highlighted passage&rdquo;</p></body></html>';
+    const section = makeSection(0, invalidXhtml);
+    section.createDocument = async () =>
+      new DOMParser().parseFromString(invalidXhtml, 'application/xhtml+xml');
+    section.loadText = async () => invalidXhtml;
+
+    const result = await locateAppleBooksAnnotationsInBook(
+      parseAppleBooksAnnotationsExport(JSON.stringify(data))!,
+      makeBookDoc([section]),
+    );
+
+    expect(result.unmatched).toBe(0);
+    expect(result.notes).toHaveLength(1);
+  });
+
   it('reports annotations whose CFI and selected text do not occur in the target EPUB', async () => {
     const data = makeExport();
     data.annotations[0]!.cfi = 'epubcfi(/6/2[old]!/4/999:0)';

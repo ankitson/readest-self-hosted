@@ -3,6 +3,7 @@ import { basename, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 import { describe, expect, it } from 'vitest';
+import { strFromU8, unzipSync } from 'fflate';
 import * as CFI from 'foliate-js/epubcfi.js';
 
 import { DocumentLoader, type BookDoc, type BookMetadata } from '@/libs/document';
@@ -118,6 +119,15 @@ const requiredEnvironmentPath = (name: string): string => {
   const value = process.env[name];
   if (!value) throw new Error(`Apple Books library migration missing ${name}`);
   return value;
+};
+
+/** Reject Apple FairPlay EPUB payloads that Readest cannot decrypt or render. */
+export const containsAppleFairPlayEncryption = (bytes: Uint8Array): boolean => {
+  const entries = unzipSync(bytes, {
+    filter: (entry) => entry.name === 'META-INF/encryption.xml',
+  });
+  const encryption = entries['META-INF/encryption.xml'];
+  return Boolean(encryption && strFromU8(encryption).includes('http://itunes.apple.com/dataenc'));
 };
 
 const safeTimestamp = (value: number | null | undefined, fallback: number): number =>
@@ -294,6 +304,11 @@ describe.runIf(Boolean(process.env['APPLE_BOOKS_MIGRATION_MANIFEST']))(
           const stagedPath = join(stageDirectory, item.file.stagedFilename);
           try {
             const bytes = readFileSync(stagedPath);
+            if (item.file.format === 'EPUB' && containsAppleFairPlayEncryption(bytes)) {
+              throw new Error(
+                `Apple Books FairPlay encryption unsupported: ${item.file.stagedFilename}`,
+              );
+            }
             const file = new File([bytes], item.file.stagedFilename, {
               type: item.file.format === 'PDF' ? 'application/pdf' : 'application/epub+zip',
             });
