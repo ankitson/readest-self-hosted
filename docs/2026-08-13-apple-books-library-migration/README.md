@@ -2,21 +2,26 @@
 
 ## Outcome
 
-The migration moved every locally available Apple Books library item into the self-hosted Readest account while preserving newer Readest state and avoiding duplicate editions.
+The migration moved every readable Apple Books library item in the selected scope into the self-hosted Readest account while preserving newer Readest state and avoiding duplicate editions. After the initial migration, five cloud books were downloaded and re-evaluated. Three were readable and migrated; two contained Apple FairPlay-encrypted content and were rejected rather than added as broken Readest books.
 
 | Stage | Count |
 | --- | ---: |
 | Apple database rows | 365 |
 | Synthetic Apple series containers excluded | 166 |
 | Actual Apple library items | 199 |
-| Locally available items | 178 |
-| EPUB files | 156 |
+| Initially locally available items | 178 |
+| Follow-up downloads selected | 5 |
+| Follow-up downloads readable/migrated | 3 |
+| Follow-up downloads FairPlay-protected/skipped | 2 |
+| Total migrated Apple items | 181 |
+| Migrated EPUB files | 159 |
 | PDF files | 22 |
-| Cloud-only Apple Store items | 21 |
+| Remaining cloud-only items intentionally skipped | 15 |
+| Downloaded `ArtMash` intentionally skipped | 1 |
 | Existing Readest editions reused | 3 |
-| New Readest books | 175 |
+| New Readest books | 178 |
 
-Apple stores EPUBs as directories. The Mac exporter packages them as standards-compatible EPUB ZIP files with an uncompressed first `mimetype` entry. All 178 staged files opened with Readest's production `DocumentLoader`; there were no file parse failures.
+Apple stores EPUBs as directories. The Mac exporter packages them as standards-compatible EPUB ZIP files with an uncompressed first `mimetype` entry. All 181 migrated files opened with Readest's production `DocumentLoader`. The planner now separately detects Apple's `http://itunes.apple.com/dataenc` FairPlay payloads because their containers can parse even though Readest cannot decrypt or render their reading content.
 
 ## Preserved data
 
@@ -44,31 +49,31 @@ This preserved the existing Readest editions of *It's Not Always Depression* and
 
 ## Annotation coverage
 
-The locally available books referenced 1,531 Apple highlights/notes. Readest located and migrated 1,496. All 18 Apple bookmarks were migrated.
+The initially available books referenced 1,531 Apple highlights/notes. Readest located and migrated 1,496. All 18 Apple bookmarks were migrated. The follow-up added the one Agent Zero highlight after recovering it from invalid XHTML as HTML, bringing the total migrated Apple annotations to 1,497 with zero unmatched annotations in the readable follow-up books.
 
 The 35 unresolved highlights were skipped rather than guessed:
 
 - *Ageless*: 34/34 unmatched in the locally stored edition.
 - *There Is No Antimemetics Division*: 1/10 unmatched.
 
-Another seven highlights belong to cloud-only books and remain queued with those books.
+Of the original seven highlights on cloud-only books, one Agent Zero highlight is now migrated. Three belong to the protected Tolstoy collection and three belong to titles the user chose to skip.
 
 ## Reading-state result
 
-Among the 178 migrated items:
+Among the 181 migrated items:
 
 | Readest status | Count |
 | --- | ---: |
-| Finished | 46 |
-| Reading | 110 |
+| Finished | 48 |
+| Reading | 111 |
 | Abandoned | 3 |
 | Unread | 19 |
 
-There are 159 migrated books with shelf progress, 153 with resume locations, and 157 Apple last-read markers in synced reading statistics. The three pre-existing Readest configs were newer and were preserved.
+There are 162 migrated books with shelf progress, 156 with resume locations, and 160 Apple last-read markers in synced reading statistics. The three pre-existing Readest configs were newer and were preserved.
 
 ## Verification
 
-The post-apply verifier checked the plan against PostgreSQL and S3/MinIO:
+The initial post-apply verifier checked its plan against PostgreSQL and S3/MinIO:
 
 - 178/178 planned book rows.
 - 178/178 book files.
@@ -76,7 +81,7 @@ The post-apply verifier checked the plan against PostgreSQL and S3/MinIO:
 - 332/332 indexed objects present at the exact recorded byte size.
 - Zero missing rows, files, notes, objects, or size mismatches.
 
-The library now has 188 live books in Readest: the prior live library plus 175 new Apple items.
+The incremental verifier then checked 3/3 book rows, 3/3 book files, 1/1 annotation, and 6/6 indexed objects with zero failures. The library now has 191 live books in Readest: the prior live library plus 178 new Apple items.
 
 ## Recovery and artifacts
 
@@ -94,6 +99,7 @@ Important paths:
 - `plan/migration-plan.json`: Readest-parsed hashes, metadata, state, and notes.
 - `plan/covers/`: 153 extracted covers.
 - `pre-bulk-readest/`: verified PostgreSQL and MinIO snapshot immediately before the bulk write.
+- `final-five/`: complete fresh Apple manifest, the five selected packages, the three-book migration plan, and a verified pre-apply PostgreSQL checkpoint.
 
 The pre-bulk database dump passed `pg_restore --list`; the MinIO archive listed successfully; both SHA-256 checks passed.
 
@@ -120,6 +126,6 @@ uv run --script apply_apple_books_library.py \
   --apply
 ```
 
-## Cloud-only queue
+## Final exclusions
 
-Twenty-one Apple Store items have metadata and reading state in the manifest but no local file. Apple documents that cloud items must be downloaded in Books by double-clicking the cloud-status item. They should be migrated by rerunning the exporter/planner after those downloads complete. Do not create unavailable Readest placeholders and do not assume a downloaded Store package is DRM-free; validate it with `DocumentLoader` first.
+The user intentionally skipped 16 of the original cloud-only titles: 15 remain cloud-only and `ArtMash` downloaded incidentally but was excluded from the selected manifest. `Middlemarch` and `Leo Tolstoy: The Complete Novels and Novellas` were selected and downloaded, but their EPUB reading resources use Apple FairPlay encryption. Their raw packages, metadata, reading state, and annotation exports remain under `final-five/`, but the books were not inserted into Readest. A DRM-free replacement edition could be evaluated later, but progress and annotation locations must not be assumed compatible across editions.

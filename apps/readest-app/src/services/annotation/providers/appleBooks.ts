@@ -234,6 +234,16 @@ const canonicalizeRangeCfi = (sectionCfi: string, range: Range): string | null =
   }
 };
 
+/** Parse invalid XHTML as HTML so selected-text recovery still sees readable EPUB content. */
+const createAppleBooksSectionDocument = async (
+  section: BookDoc['sections'][number],
+): Promise<Document> => {
+  const doc = await section.createDocument();
+  if (doc.body && !doc.querySelector('parsererror')) return doc;
+  const source = await section.loadText?.();
+  return source ? new DOMParser().parseFromString(source, 'text/html') : doc;
+};
+
 /**
  * Locate Apple Books highlights in the opened EPUB and rebuild canonical Readest CFIs.
  * Exact source CFIs are preferred; selected-text search recovers annotations when markup moved.
@@ -254,7 +264,7 @@ export const locateAppleBooksAnnotationsInBook = async (
       return null;
     }
     try {
-      const doc = await section.createDocument();
+      const doc = await createAppleBooksSectionDocument(section);
       documentCache.set(index, doc);
       return doc;
     } catch {

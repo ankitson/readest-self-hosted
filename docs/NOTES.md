@@ -1,5 +1,24 @@
 ## 2026-08-13
 
+### Apple Books selected cloud-download follow-up
+
+#### Outcome
+
+- Re-exported Apple Books after five requested downloads and retained the complete fresh manifest for audit.
+- Migrated Agent Zero, The Kama Sutra, and The Republic, including Agent Zero's one highlight and source reading state.
+- Excluded the incidentally downloaded ArtMash per the user's selected scope.
+- Rejected Middlemarch and the Tolstoy collection because their reading resources use Apple FairPlay encryption.
+
+#### Hardening
+
+- Added explicit FairPlay payload detection so a parseable EPUB container is not mistaken for a readable book.
+- Added an HTML reparse fallback for invalid XHTML, recovering Agent Zero's selected text and canonical CFI.
+
+#### Verification
+
+- Verified 3/3 book rows, 3/3 book files, 1/1 annotation, and 6/6 storage objects with zero failures.
+- Verified the pre-apply PostgreSQL custom-format checkpoint by listing it with `pg_restore` and checking its SHA-256 digest.
+
 ### Apple Books full-library migration
 
 #### Outcome
@@ -26,8 +45,8 @@
 
 #### Remaining
 
-- Twenty-one Apple Store items are cloud-only and must be downloaded in Apple Books before their file packages can be validated and imported.
-- Seven exported highlights belong to those cloud-only books.
+- Fifteen deliberately skipped Apple Store items remain cloud-only; ArtMash downloaded incidentally and was also deliberately skipped.
+- Middlemarch and the Tolstoy collection are downloaded but FairPlay-protected, so their files cannot be read by Readest.
 
 ### Apple Books exporter and real-library migration validation
 

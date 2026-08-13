@@ -7,3 +7,11 @@
 {"date":"2026-08-13","check":"post-apply-verification","book_rows_verified":178,"book_files_verified":178,"notes_verified":1514,"objects_verified":332,"missing_rows":0,"missing_files":0,"missing_notes":0,"missing_objects":0,"wrong_size_objects":0,"result":"pass"}
 {"date":"2026-08-13","check":"full-app-tests","test_files_passed":588,"test_files_skipped":4,"tests_passed":7773,"tests_skipped":8,"result":"pass"}
 {"date":"2026-08-13","check":"lint","commands":["tsgo --noEmit","biome lint ."],"files_checked":1789,"result":"pass"}
+{"date":"2026-08-13","check":"selected-cloud-download-inventory","requested_downloads":5,"readable_epubs":3,"fairplay_protected_epubs":2,"incidentally_downloaded_skipped":1,"remaining_cloud_only_skipped":15,"result":"pass"}
+{"date":"2026-08-13","check":"selected-cloud-download-plan","parsed_books":3,"parse_failures":2,"annotations_total":1,"annotations_located":1,"annotations_unmatched":0,"result":"pass"}
+{"date":"2026-08-13","check":"selected-cloud-download-backup","postgres_dump_verified":true,"pg_restore_list_verified":true,"checksum_verified":true,"result":"pass"}
+{"date":"2026-08-13","check":"selected-cloud-download-apply","books":3,"new_books":3,"uploaded_objects":6,"planned_notes":1,"result":"pass"}
+{"date":"2026-08-13","check":"selected-cloud-download-verification","book_rows_verified":3,"book_files_verified":3,"notes_verified":1,"objects_verified":6,"missing_rows":0,"missing_files":0,"missing_notes":0,"missing_objects":0,"wrong_size_objects":0,"result":"pass"}
+{"date":"2026-08-13","check":"selected-cloud-download-full-app-tests","test_files_passed":588,"test_files_skipped":4,"tests_passed":7774,"tests_skipped":8,"result":"pass"}
+{"date":"2026-08-13","check":"selected-cloud-download-lint","commands":["tsgo --noEmit","biome lint ."],"files_checked":1789,"result":"pass"}
+{"date":"2026-08-13","check":"selected-cloud-download-live-scope","live_books":191,"selected_readable_assets_present":3,"fairplay_assets_absent":2,"result":"pass"}

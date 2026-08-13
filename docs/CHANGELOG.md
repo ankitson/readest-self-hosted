@@ -1,5 +1,11 @@
 ## 2026-08-13
 
+### Apple Books downloaded-title follow-up
+
+- Added Apple FairPlay payload detection to prevent encrypted Store EPUBs from entering migration plans as apparently parseable books.
+- Added invalid-XHTML HTML fallback for selected-text annotation recovery.
+- Migrated three newly readable Apple Books and the recovered Agent Zero highlight; intentionally excluded one unselected download and two FairPlay-protected packages.
+
 ### Apple Books full-library migration tooling
 
 - Added a versioned full-library manifest and standards-compatible Apple EPUB packager.
