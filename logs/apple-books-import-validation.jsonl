@@ -8,3 +8,5 @@
 {"date":"2026-08-13","check":"pre-migration-backup","postgres_dump_verified":true,"minio_archive_verified":true,"checksums_verified":true,"result":"pass"}
 {"date":"2026-08-13","check":"full-tests-after-sync-hardening","test_files_passed":588,"test_files_skipped":3,"tests_passed":7773,"tests_skipped":7,"result":"pass"}
 {"date":"2026-08-13","check":"lint-after-sync-hardening","commands":["tsgo --noEmit","biome lint ."],"files_checked":1788,"result":"pass"}
+{"date":"2026-08-13","check":"production-image-build","target":"production-stage","commit":"1c2dc48d","result":"pass"}
+{"date":"2026-08-13","check":"live-web-deploy","container_running":true,"container_restarting":false,"http_status":200,"apple_books_bundle_present":true,"rollback_image":"ghcr.io/ankitson/readest:pre-apple-books-20260813","result":"pass"}
