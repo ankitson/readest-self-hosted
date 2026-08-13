@@ -18,6 +18,7 @@
 
 - Verified 3/3 book rows, 3/3 book files, 1/1 annotation, and 6/6 storage objects with zero failures.
 - Verified the pre-apply PostgreSQL custom-format checkpoint by listing it with `pg_restore` and checking its SHA-256 digest.
+- Built and deployed the production web image at commit `2b27dfeb`; the live container returns HTTP 200 with zero restarts, and the preceding image has a rollback tag.
 
 ### Apple Books full-library migration
 
