@@ -116,6 +116,13 @@ export interface Book {
   // Field-level LWW timestamp for the cover, so a page-turn that wins whole-row
   // LWW on updatedAt cannot clobber a cover edit (mirrors readingStatusUpdatedAt).
   coverUpdatedAt?: number | null;
+  // Field-level LWW timestamp for title/author/tags/metadata edits. Metadata
+  // must not reuse updatedAt: that field also carries reading progress and is
+  // the legacy Date Read fallback.
+  metadataUpdatedAt?: number | null;
+  // Actual reading-recency clock used by the Date Read sort. Older servers and
+  // legacy local rows fall back to updatedAt.
+  lastReadAt?: number | null;
   syncedAt?: number | null;
 
   lastUpdated?: number; // deprecated in favor of updatedAt

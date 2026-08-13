@@ -261,6 +261,8 @@ export const withTimeRemainingLast =
     return compare(a, b);
   };
 
+export const getBookDateReadAt = (book: Book): number => book.lastReadAt ?? book.updatedAt;
+
 const compareBookByKey = (a: Book, b: Book, sortBy: string, uiLanguage: string): number => {
   switch (sortBy) {
     case LibrarySortByType.Title: {
@@ -274,7 +276,7 @@ const compareBookByKey = (a: Book, b: Book, sortBy: string, uiLanguage: string):
       return aAuthors.localeCompare(bAuthors, uiLanguage || navigator.language);
     }
     case LibrarySortByType.Updated:
-      return new Date(a.updatedAt).getTime() - new Date(b.updatedAt).getTime();
+      return new Date(getBookDateReadAt(a)).getTime() - new Date(getBookDateReadAt(b)).getTime();
     case LibrarySortByType.Created:
       return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
     case LibrarySortByType.Format:
@@ -324,7 +326,7 @@ const compareBookByKey = (a: Book, b: Book, sortBy: string, uiLanguage: string):
       return aTime - bTime;
     }
     default:
-      return new Date(a.updatedAt).getTime() - new Date(b.updatedAt).getTime();
+      return new Date(getBookDateReadAt(a)).getTime() - new Date(getBookDateReadAt(b)).getTime();
   }
 };
 
@@ -345,9 +347,7 @@ export const createBookSorter =
  * Pick the books for the recently-read shelf: most-recently-read first, capped
  * at `count`. Only currently-reading books qualify (see `isCurrentlyReadingBook`):
  * finished, abandoned and freshly-imported books are left off. Recency uses
- * `updatedAt` (the library's "Updated" sort key) so the row matches the app's
- * existing sort convention. NB: `updatedAt` is last-modified (also bumped by
- * status/metadata edits and sync), not strictly last-read. Independent of the
+ * `lastReadAt`, with `updatedAt` as a legacy-row fallback. Independent of the
  * main shelf's sort/grouping — always a flat, recency slice.
  */
 export const selectRecentShelfBooks = (books: Book[], count: number): Book[] => {
@@ -359,7 +359,7 @@ export const selectRecentShelfBooks = (books: Book[], count: number): Book[] => 
 };
 
 /**
- * Build a `groupName -> max(book.updatedAt)` map for all groups touched by
+ * Build a `groupName -> max(book Date Read)` map for all groups touched by
  * the given books. Each book bumps both its direct group and every ancestor
  * group along its path (e.g. a book in "Literature/Fiction" also bumps
  * "Literature"), so parent groups don't sink just because their direct
@@ -368,11 +368,12 @@ export const selectRecentShelfBooks = (books: Book[], count: number): Book[] => 
 export const buildGroupNameUpdatedAt = (books: Book[]): Map<string, number> => {
   const map = new Map<string, number>();
   for (const book of books) {
-    if (!book.groupName || !book.updatedAt) continue;
+    const dateReadAt = getBookDateReadAt(book);
+    if (!book.groupName || !dateReadAt) continue;
     let path: string | undefined = book.groupName;
     while (path) {
       const prev = map.get(path) ?? 0;
-      if (book.updatedAt > prev) map.set(path, book.updatedAt);
+      if (dateReadAt > prev) map.set(path, dateReadAt);
       const slash = path.lastIndexOf('/');
       path = slash === -1 ? undefined : path.slice(0, slash);
     }
@@ -805,6 +806,41 @@ export const pickFresherCover = (local: CoverFields, synced: CoverFields): Cover
   coverMs(synced.coverUpdatedAt) > coverMs(local.coverUpdatedAt)
     ? { coverHash: synced.coverHash, coverUpdatedAt: synced.coverUpdatedAt }
     : { coverHash: local.coverHash, coverUpdatedAt: local.coverUpdatedAt };
+
+type MetadataFields = Pick<
+  Book,
+  | 'title'
+  | 'author'
+  | 'metadata'
+  | 'metadataUpdatedAt'
+  | 'primaryLanguage'
+  | 'groupId'
+  | 'groupName'
+  | 'tags'
+>;
+
+/**
+ * Resolve user-facing metadata independently of reading progress. A legacy
+ * row with no metadataUpdatedAt falls back to updatedAt; once either side is
+ * stamped, the dedicated clock prevents a later page turn with stale title or
+ * author data from undoing an edit.
+ */
+export const pickFresherMetadata = (local: Book, synced: Book): MetadataFields => {
+  const dedicated = local.metadataUpdatedAt != null || synced.metadataUpdatedAt != null;
+  const localClock = dedicated ? (local.metadataUpdatedAt ?? 0) : (local.updatedAt ?? 0);
+  const syncedClock = dedicated ? (synced.metadataUpdatedAt ?? 0) : (synced.updatedAt ?? 0);
+  const winner = syncedClock > localClock ? synced : local;
+  return {
+    title: winner.title,
+    author: winner.author,
+    metadata: winner.metadata,
+    metadataUpdatedAt: winner.metadataUpdatedAt,
+    primaryLanguage: winner.primaryLanguage,
+    groupId: winner.groupId,
+    groupName: winner.groupName,
+    tags: winner.tags,
+  };
+};
 
 /**
  * Resolve the ordered list of context-menu item ids for a book from its state.

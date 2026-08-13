@@ -593,7 +593,11 @@ export class FileSyncEngine {
     const isLocalNewer = (book: Book): boolean => {
       const remote = remoteByHash.get(book.hash);
       if (!remote) return true;
-      return (book.updatedAt ?? 0) > (remote.updatedAt ?? 0);
+      const metadataNewer =
+        book.metadataUpdatedAt != null || remote.metadataUpdatedAt != null
+          ? (book.metadataUpdatedAt ?? 0) > (remote.metadataUpdatedAt ?? 0)
+          : (book.updatedAt ?? 0) > (remote.updatedAt ?? 0);
+      return (book.updatedAt ?? 0) > (remote.updatedAt ?? 0) || metadataNewer;
     };
 
     // File-upload cursor (#4856): the index records which book FILES already

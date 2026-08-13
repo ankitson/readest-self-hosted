@@ -21,6 +21,8 @@ CREATE TABLE public.books (
   reading_status_updated_at timestamp with time zone NULL,
   cover_hash text NULL,
   cover_updated_at timestamp with time zone NULL,
+  metadata_updated_at timestamp with time zone NULL,
+  last_read_at timestamp with time zone NULL,
   group_id text NULL,
   group_name text NULL,
   metadata json NULL,

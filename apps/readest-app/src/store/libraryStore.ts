@@ -114,6 +114,7 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
       readingStatus,
       readingStatusUpdatedAt: statusChanged ? Date.now() : book.readingStatusUpdatedAt,
       updatedAt: Date.now(),
+      lastReadAt: Date.now(),
     };
     const newLibrary = library.slice();
     newLibrary[idx] = updatedBook;

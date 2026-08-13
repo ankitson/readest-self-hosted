@@ -195,13 +195,17 @@ export const getPrimaryLanguage = (lang: string | string[] | undefined) => {
 // and compares fields off the book, so an in-place mutation makes the memo's
 // previous snapshot point to the same object and skips re-rendering the cover.
 export const getBookWithUpdatedMetadata = (book: Book, metadata: BookMetadata): Book => {
+  const now = Date.now();
   const updatedBook: Book = {
     ...book,
     metadata,
     title: formatTitle(metadata.title),
     author: formatAuthors(metadata.author),
     primaryLanguage: getPrimaryLanguage(metadata.language),
-    updatedAt: Date.now(),
+    // Metadata has its own sync clock. Keeping updatedAt stable prevents a
+    // rename or cover lookup from masquerading as a new reading session.
+    updatedAt: book.updatedAt,
+    metadataUpdatedAt: now,
   };
   const newCoverImageUrl = metadata.coverImageBlobUrl || metadata.coverImageUrl;
   if (newCoverImageUrl) {

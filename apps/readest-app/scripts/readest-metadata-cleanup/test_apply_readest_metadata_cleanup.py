@@ -33,6 +33,7 @@ class MetadataCleanupTests(unittest.TestCase):
                 "title": "Book: Subtitle",
                 "author": "First Author; Second Author",
                 "updatedAt": 1234,
+                "lastReadAt": 1234,
                 "metadata": {
                     "title": "Book: Subtitle",
                     "author": "First Author; Second Author",
@@ -52,6 +53,7 @@ class MetadataCleanupTests(unittest.TestCase):
         self.assertEqual(plan["metadata"]["subtitle"], "Subtitle")
         self.assertEqual(plan["author"], "First Author and Second Author")
         self.assertEqual(plan["updatedAt"], 1234)
+        self.assertEqual(plan["lastReadAt"], 1234)
 
     def test_reviewed_override_and_date_restore(self) -> None:
         books = [
@@ -61,6 +63,7 @@ class MetadataCleanupTests(unittest.TestCase):
                 "title": "BAD TITLE",
                 "author": "UnknownAuthor",
                 "updatedAt": 9999,
+                "lastReadAt": 9999,
                 "metadata": {"title": "BAD TITLE", "author": "UnknownAuthor"},
             }
         ]
@@ -76,7 +79,8 @@ class MetadataCleanupTests(unittest.TestCase):
         }
         plan = MODULE.build_cleanup_plan(books, corrections)[0]
         self.assertEqual(plan["title"], "Good Title")
-        self.assertEqual(plan["updatedAt"], 1111)
+        self.assertEqual(plan["updatedAt"], 9999)
+        self.assertEqual(plan["lastReadAt"], 1111)
 
     def test_reviewed_override_is_idempotent_after_cleanup(self) -> None:
         books = [
@@ -86,6 +90,7 @@ class MetadataCleanupTests(unittest.TestCase):
                 "title": "Good Title",
                 "author": "Good Author",
                 "updatedAt": 1111,
+                "lastReadAt": 1111,
                 "metadata": {"title": "Good Title", "author": "Good Author"},
             }
         ]

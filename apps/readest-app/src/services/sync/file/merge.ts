@@ -120,7 +120,12 @@ export const mergeBookConfig = (
  * so it is intentionally absent here.
  */
 export const mergeBookMetadata = (local: Book, remote: Book): Book => {
-  const remoteMetaNewer = (remote.updatedAt ?? 0) > (local.updatedAt ?? 0);
+  const dedicatedMetadataClock =
+    local.metadataUpdatedAt != null || remote.metadataUpdatedAt != null;
+  const remoteMetaNewer =
+    (dedicatedMetadataClock ? (remote.metadataUpdatedAt ?? 0) : (remote.updatedAt ?? 0)) >
+    (dedicatedMetadataClock ? (local.metadataUpdatedAt ?? 0) : (local.updatedAt ?? 0));
+  const remoteRowNewer = (remote.updatedAt ?? 0) > (local.updatedAt ?? 0);
   const merged: Book = remoteMetaNewer
     ? {
         ...local,
@@ -131,10 +136,14 @@ export const mergeBookMetadata = (local: Book, remote: Book): Book => {
         groupId: remote.groupId,
         groupName: remote.groupName,
         tags: remote.tags,
-        progress: remote.progress ?? local.progress,
-        updatedAt: remote.updatedAt,
+        metadataUpdatedAt: remote.metadataUpdatedAt,
       }
     : { ...local };
+  if (remoteRowNewer) {
+    merged.progress = remote.progress ?? local.progress;
+    merged.updatedAt = remote.updatedAt;
+    merged.lastReadAt = remote.lastReadAt ?? local.lastReadAt;
+  }
   if ((remote.readingStatusUpdatedAt ?? 0) > (local.readingStatusUpdatedAt ?? 0)) {
     merged.readingStatus = remote.readingStatus;
     merged.readingStatusUpdatedAt = remote.readingStatusUpdatedAt;
@@ -149,7 +158,11 @@ export const mergeBookMetadata = (local: Book, remote: Book): Book => {
  * we never re-apply identical metadata or bounce updates between devices.
  */
 export const isRemoteBookMetadataNewer = (local: Book, remote: Book): boolean =>
-  !remote.deletedAt && !local.deletedAt && (remote.updatedAt ?? 0) > (local.updatedAt ?? 0);
+  !remote.deletedAt &&
+  !local.deletedAt &&
+  (local.metadataUpdatedAt != null || remote.metadataUpdatedAt != null
+    ? (remote.metadataUpdatedAt ?? 0) > (local.metadataUpdatedAt ?? 0)
+    : (remote.updatedAt ?? 0) > (local.updatedAt ?? 0));
 
 /**
  * Reconciliation trigger: apply `mergeBookMetadata` when the remote copy is
@@ -162,4 +175,7 @@ export const shouldApplyRemoteBookMetadata = (local: Book, remote: Book): boolea
   !remote.deletedAt &&
   !local.deletedAt &&
   ((remote.updatedAt ?? 0) > (local.updatedAt ?? 0) ||
+    (local.metadataUpdatedAt != null || remote.metadataUpdatedAt != null
+      ? (remote.metadataUpdatedAt ?? 0) > (local.metadataUpdatedAt ?? 0)
+      : (remote.updatedAt ?? 0) > (local.updatedAt ?? 0)) ||
     (remote.readingStatusUpdatedAt ?? 0) > (local.readingStatusUpdatedAt ?? 0));
