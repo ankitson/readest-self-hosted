@@ -1,5 +1,6 @@
 import React from 'react';
 import { MdNightlightRound } from 'react-icons/md';
+import { SiApple } from 'react-icons/si';
 import { useTranslation } from '@/hooks/useTranslation';
 import { BoxedList, NavigationRow } from '@/components/settings/primitives';
 import Dialog from '@/components/Dialog';
@@ -7,6 +8,7 @@ import Dialog from '@/components/Dialog';
 interface ImportAnnotationsDialogProps {
   isOpen: boolean;
   onClose: () => void;
+  onImportAppleBooks: () => void;
   onImportMoonReader: () => void;
 }
 
@@ -18,6 +20,7 @@ interface ImportAnnotationsDialogProps {
 const ImportAnnotationsDialog: React.FC<ImportAnnotationsDialogProps> = ({
   isOpen,
   onClose,
+  onImportAppleBooks,
   onImportMoonReader,
 }) => {
   const _ = useTranslation();
@@ -34,6 +37,12 @@ const ImportAnnotationsDialog: React.FC<ImportAnnotationsDialogProps> = ({
         title={_('Import From')}
         description={_('Import highlights and notes exported from another reading app.')}
       >
+        <NavigationRow
+          icon={SiApple}
+          title={_('Apple Books')}
+          status={_('Readest Apple Books export file (.json)')}
+          onClick={onImportAppleBooks}
+        />
         <NavigationRow
           icon={MdNightlightRound}
           title={_('Moon+ Reader')}
