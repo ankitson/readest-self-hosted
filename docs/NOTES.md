@@ -1,5 +1,25 @@
 ## 2026-08-13
 
+### Readest metadata normalization
+
+#### Outcome
+
+- Cleaned 94/191 live book records and left 97 already-clean records untouched.
+- Removed every `UnknownAuthor` and filename-like title; only two self-published PDFs remain without a stable identifier.
+- Added high-confidence series metadata for the GPU and Hitchhiker's books plus other known series.
+
+#### Timestamp decision
+
+- Readest's “Date Read” sort uses the general `books.updated_at` field.
+- One-off metadata writes therefore advance `metadata_updated_at` but preserve `updated_at`.
+- Five books previously moved by manual edits had `updated_at` restored from historical Apple Books activity.
+
+#### Safety
+
+- Verified the pre-apply custom PostgreSQL dump and 191-book JSON snapshot by SHA-256.
+- Post-apply fingerprints prove progress, status, covers, reader configs, notes, files, and statistics are unchanged.
+- A post-apply dry run is empty, and no Readest image rebuild or deployment occurred.
+
 ### Apple Books selected cloud-download follow-up
 
 #### Outcome

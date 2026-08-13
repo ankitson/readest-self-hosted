@@ -1,0 +1,5 @@
+{"date":"2026-08-13","check":"pre-cleanup-backup","live_books":191,"postgres_dump_verified":true,"pg_restore_list_verified":true,"snapshot_books":191,"checksums_verified":true,"result":"pass"}
+{"date":"2026-08-13","check":"metadata-cleanup-dry-run","live_books":191,"changed_books":94,"titles":61,"subtitles":52,"metadata_authors":42,"identifiers":21,"series":15,"date_read_restores":5,"result":"pass"}
+{"date":"2026-08-13","check":"metadata-cleanup-apply","live_books":191,"changed_books":94,"transaction_guarded":true,"result":"pass"}
+{"date":"2026-08-13","check":"metadata-cleanup-invariants","date_read_changes":5,"expected_date_read_changes":5,"reading_state_unchanged":true,"covers_unchanged":true,"book_configs_unchanged":true,"notes_unchanged":true,"files_unchanged":true,"statistics_unchanged":true,"result":"pass"}
+{"date":"2026-08-13","check":"metadata-cleanup-post-apply-dry-run","live_books":191,"changed_books":0,"unknown_authors":0,"filename_titles":0,"missing_identifiers":2,"result":"pass"}
