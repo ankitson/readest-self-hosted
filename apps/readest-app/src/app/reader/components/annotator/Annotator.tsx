@@ -90,6 +90,7 @@ import {
   convertMrexptEntriesToBookNotes,
   mergeImportedBookNotes,
 } from '@/services/annotation/providers/mrexpt';
+import { useAppleBooksAnnotationImport } from '../../hooks/useAppleBooksAnnotationImport';
 
 const Annotator: React.FC<{ bookKey: string; contentInsets: Insets }> = ({
   bookKey,
@@ -166,6 +167,8 @@ const Annotator: React.FC<{ bookKey: string; contentInsets: Insets }> = ({
   const [exportData, setExportData] = useState<{
     booknoteGroups: { [href: string]: BooknoteGroup };
   } | null>(null);
+  const { importAppleBooksAnnotations, isImportingAppleBooks } =
+    useAppleBooksAnnotationImport(bookKey);
 
   const [selectedStyle, setSelectedStyle] = useState<HighlightStyle>(
     settings.globalReadSettings.highlightStyle,
@@ -1385,6 +1388,11 @@ const Annotator: React.FC<{ bookKey: string; contentInsets: Insets }> = ({
     setShowImportDialog(true);
   };
 
+  const importFromAppleBooks = () => {
+    setShowImportDialog(false);
+    void importAppleBooksAnnotations();
+  };
+
   const importFromMoonReader = async () => {
     setShowImportDialog(false);
 
@@ -1833,6 +1841,7 @@ const Annotator: React.FC<{ bookKey: string; contentInsets: Insets }> = ({
         <ImportAnnotationsDialog
           isOpen={showImportDialog}
           onClose={() => setShowImportDialog(false)}
+          onImportAppleBooks={importFromAppleBooks}
           onImportMoonReader={importFromMoonReader}
         />
       )}
@@ -1851,7 +1860,7 @@ const Annotator: React.FC<{ bookKey: string; contentInsets: Insets }> = ({
           />
         </ModalPortal>
       )}
-      {importingMrexpt && (
+      {(importingMrexpt || isImportingAppleBooks) && (
         <div className='fixed inset-0 z-50 flex items-center justify-center bg-black/30'>
           <div className='modal-box bg-base-100 flex flex-col items-center gap-3 px-8 py-6 shadow-2xl'>
             <svg className='text-primary h-8 w-8 animate-spin' viewBox='0 0 24 24' fill='none'>

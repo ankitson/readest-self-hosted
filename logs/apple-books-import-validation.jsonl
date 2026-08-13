@@ -1,0 +1,4 @@
+{"date":"2026-08-12","check":"real-sample-cfi","book":"It's Not Always Depression","annotations_tested":1,"located":1,"unmatched":0,"result":"pass"}
+{"date":"2026-08-12","check":"targeted-tests","test_files":2,"tests_passed":17,"result":"pass"}
+{"date":"2026-08-12","check":"full-tests","test_files_passed":588,"test_files_skipped":3,"tests_passed":7772,"tests_skipped":7,"result":"pass"}
+{"date":"2026-08-12","check":"lint","commands":["tsgo --noEmit","biome lint ."],"result":"pass"}
