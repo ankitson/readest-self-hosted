@@ -14,6 +14,7 @@ const SAMPLE_CFI = 'epubcfi(/6/14[id9310]!/4[book-body]/2/2,/7:44,/9:128)';
 const makeExport = () => ({
   format: 'readest-apple-books-annotations',
   version: 1,
+  exportedAt: 1_756_000_002_000,
   book: {
     assetId: 'asset-1',
     title: "A Study of Tides: Coastal Rhythms",
@@ -49,6 +50,12 @@ describe('parseAppleBooksAnnotationsExport', () => {
     malformed.annotations[0]!.cfi = 'not-a-cfi';
     expect(parseAppleBooksAnnotationsExport(JSON.stringify(malformed))).toBeNull();
   });
+
+  it('requires an export timestamp so migrated notes cross Readest sync cursors', () => {
+    const { exportedAt: _exportedAt, ...missingExportTimestamp } = makeExport();
+
+    expect(parseAppleBooksAnnotationsExport(JSON.stringify(missingExportTimestamp))).toBeNull();
+  });
 });
 
 describe('convertAppleBooksExportToBookNotes', () => {
@@ -65,7 +72,7 @@ describe('convertAppleBooksExportToBookNotes', () => {
       color: 'yellow',
       note: 'A reader note',
       createdAt: 1_756_000_000_000,
-      updatedAt: 1_756_000_001_000,
+      updatedAt: 1_756_000_002_000,
     });
   });
 
