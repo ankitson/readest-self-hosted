@@ -19,6 +19,7 @@ import { FILE_REVEAL_LABELS, FILE_REVEAL_PLATFORMS } from '@/utils/os';
 import { Book, BooksGroup, ReadingStatus } from '@/types/book';
 import {
   getBookContextMenuItemIds,
+  getBookDateReadAt,
   type BookContextMenuItemId,
 } from '@/app/library/utils/libraryUtils';
 import { md5Fingerprint } from '@/utils/md5';
@@ -62,20 +63,20 @@ export const generateBookshelfItems = (
     const existingGroup = groupsMap.get(mapKey);
     if (existingGroup) {
       existingGroup.books.push(book);
-      existingGroup.updatedAt = Math.max(existingGroup.updatedAt, book.updatedAt);
+      existingGroup.updatedAt = Math.max(existingGroup.updatedAt, getBookDateReadAt(book));
     } else {
       groupsMap.set(mapKey, {
         id: isDirectChild ? BOOK_UNGROUPED_ID : md5Fingerprint(fullGroupName),
         name: fullGroupName,
         displayName: isDirectChild ? BOOK_UNGROUPED_NAME : immediateChild,
         books: [book],
-        updatedAt: book.updatedAt,
+        updatedAt: getBookDateReadAt(book),
       });
     }
   }
 
   for (const group of groupsMap.values()) {
-    group.books.sort((a, b) => b.updatedAt - a.updatedAt);
+    group.books.sort((a, b) => getBookDateReadAt(b) - getBookDateReadAt(a));
   }
 
   const ungroupedGroup = groupsMap.get(BOOK_UNGROUPED_NAME);
@@ -84,7 +85,9 @@ export const generateBookshelfItems = (
     (group) => group.name !== BOOK_UNGROUPED_NAME,
   );
 
-  return [...ungroupedBooks, ...groupedBooks].sort((a, b) => b.updatedAt - a.updatedAt);
+  const itemDateReadAt = (item: Book | BooksGroup) =>
+    'books' in item ? item.updatedAt : getBookDateReadAt(item);
+  return [...ungroupedBooks, ...groupedBooks].sort((a, b) => itemDateReadAt(b) - itemDateReadAt(a));
 };
 
 interface BookshelfItemProps {

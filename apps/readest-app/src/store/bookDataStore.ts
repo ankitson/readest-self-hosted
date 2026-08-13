@@ -142,6 +142,7 @@ export const useBookDataStore = create<BookDataState>((set, get) => ({
       ...original,
       progress: config.progress,
       updatedAt: now,
+      lastReadAt: now,
       downloadedAt: original.downloadedAt || now,
     };
     const newLibrary = [updatedBook, ...library.slice(0, idx), ...library.slice(idx + 1)];

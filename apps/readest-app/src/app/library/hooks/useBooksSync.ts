@@ -22,6 +22,7 @@ import {
   pickFresherReadingStatus,
   needsCoverRefresh,
   pickFresherCover,
+  pickFresherMetadata,
 } from '@/app/library/utils/libraryUtils';
 
 export const useBooksSync = () => {
@@ -45,6 +46,7 @@ export const useBooksSync = () => {
         (book) =>
           !book.syncedAt ||
           lastSyncedAtBooks < book.updatedAt ||
+          lastSyncedAtBooks < (book.metadataUpdatedAt ?? 0) ||
           lastSyncedAtBooks < (book.deletedAt ?? 0),
       )
       // book.filePath is a device-local absolute path used by the in-place
@@ -226,6 +228,9 @@ export const useBooksSync = () => {
         const cover = pickFresherCover(oldBook, matchingBook);
         mergedBook.coverHash = cover.coverHash;
         mergedBook.coverUpdatedAt = cover.coverUpdatedAt;
+        // Metadata has its own clock so a device with newer reading progress
+        // cannot push an older title/author back over a metadata edit.
+        Object.assign(mergedBook, pickFresherMetadata(oldBook, matchingBook));
         return mergedBook;
       }
       return oldBook;

@@ -128,6 +128,7 @@ def load_live_books() -> list[dict[str, Any]]:
         "SELECT json_build_object("
         "'userId',user_id,'hash',book_hash,'title',title,'author',author,"
         "'updatedAt',round(extract(epoch from updated_at)*1000),"
+        "'lastReadAt',round(extract(epoch from last_read_at)*1000),"
         "'metadataUpdatedAt',round(extract(epoch from metadata_updated_at)*1000),"
         "'metadata',metadata) FROM public.books WHERE deleted_at IS NULL ORDER BY book_hash"
     )
@@ -238,9 +239,10 @@ def build_cleanup_plan(
             changes["books.author"] = {"before": book["author"], "after": final_author}
 
         restored_at = restore_dates.get(book["hash"])
-        if restored_at is not None and int(book["updatedAt"]) != int(restored_at):
-            changes["books.updatedAt"] = {
-                "before": int(book["updatedAt"]),
+        current_last_read = int(book.get("lastReadAt") or book["updatedAt"])
+        if restored_at is not None and current_last_read != int(restored_at):
+            changes["books.lastReadAt"] = {
+                "before": current_last_read,
                 "after": int(restored_at),
             }
 
@@ -253,9 +255,10 @@ def build_cleanup_plan(
                     "author": final_author,
                     "metadata": after,
                     "originalUpdatedAt": int(book["updatedAt"]),
-                    "updatedAt": int(restored_at)
+                    "updatedAt": int(book["updatedAt"]),
+                    "lastReadAt": int(restored_at)
                     if restored_at is not None
-                    else int(book["updatedAt"]),
+                    else current_last_read,
                     "changes": changes,
                 }
             )
@@ -273,7 +276,7 @@ def plan_sql(plans: list[dict[str, Any]], user_id: str) -> str:
             "DO $cleanup$ BEGIN UPDATE public.books SET "
             f"title={sql_text(plan['title'])},author={sql_text(plan['author'])},"
             f"metadata=to_jsonb({sql_text(metadata_json)}),metadata_updated_at=clock_timestamp(),"
-            f"updated_at=to_timestamp({plan['updatedAt']} / 1000.0) "
+            f"last_read_at=to_timestamp({plan['lastReadAt']} / 1000.0) "
             f"WHERE user_id={sql_text(user_id)}::uuid AND book_hash={sql_text(plan['hash'])} "
             f"AND deleted_at IS NULL AND round(extract(epoch from updated_at)*1000)={plan['originalUpdatedAt']}; "
             "IF NOT FOUND THEN RAISE EXCEPTION 'guarded metadata update failed'; END IF; END $cleanup$;"
@@ -322,14 +325,13 @@ def verify_applied_plan(
         if metadata_object(actual["metadata"]) != plan["metadata"]:
             raise RuntimeError(f"Metadata verification failed for {plan['hash']}")
         if int(actual["updatedAt"]) != plan["updatedAt"]:
+            raise RuntimeError(f"Row timestamp verification failed for {plan['hash']}")
+        if int(actual["lastReadAt"]) != plan["lastReadAt"]:
             raise RuntimeError(f"Date Read verification failed for {plan['hash']}")
     for book_hash, actual in after_by_hash.items():
         before = before_by_hash[book_hash]
-        expected_date = plan_by_hash.get(book_hash, {}).get(
-            "updatedAt", int(before["updatedAt"])
-        )
-        if int(actual["updatedAt"]) != expected_date:
-            raise RuntimeError(f"Unplanned Date Read change for {book_hash}")
+        if int(actual["updatedAt"]) != int(before["updatedAt"]):
+            raise RuntimeError(f"Unplanned row timestamp change for {book_hash}")
         if book_hash not in plan_by_hash and metadata_object(
             actual["metadata"]
         ) != metadata_object(before["metadata"]):

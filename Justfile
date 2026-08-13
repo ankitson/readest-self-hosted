@@ -3,6 +3,8 @@ set shell := ["bash", "-e", "-o", "pipefail", "-c"]
 apple_migration_root := env_var_or_default("APPLE_BOOKS_MIGRATION_ROOT", "/mnt/passport2tb/root/shared_storage/backups/readest/apple-books-library-migration-2026-08-13")
 apple_migration_scripts := "apps/readest-app/scripts/apple-books-library-migration"
 metadata_cleanup_scripts := "apps/readest-app/scripts/readest-metadata-cleanup"
+cover_backfill_scripts := "apps/readest-app/scripts/readest-cover-backfill"
+metadata_cleanup_root := env_var_or_default("READEST_METADATA_CLEANUP_ROOT", "/mnt/passport2tb/root/shared_storage/backups/readest/readest-metadata-cleanup-2026-08-13")
 readest_env := env_var_or_default("READEST_ENV_FILE", "/home/ankit/hroot/devserver/secrets/readest.secrets.env")
 
 default:
@@ -36,3 +38,11 @@ readest-metadata-cleanup-test:
 
 readest-metadata-cleanup-dry-run:
     cd {{metadata_cleanup_scripts}} && uv run --script apply_readest_metadata_cleanup.py
+
+readest-cover-backfill-test:
+    cd {{cover_backfill_scripts}} && uv run --with 'boto3>=1.40,<2' --with 'httpx>=0.28,<1' --with 'pillow>=11,<12' --with 'pymupdf>=1.26,<2' python -m unittest -v test_backfill_readest_covers.py
+
+readest-cover-backfill-prepare:
+    cd {{cover_backfill_scripts}} && uv run --script backfill_readest_covers.py \
+      --output-dir {{metadata_cleanup_root}}/covers \
+      --env-file {{readest_env}}
