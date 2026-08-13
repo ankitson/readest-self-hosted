@@ -1,3 +1,22 @@
+## 2026-08-13
+
+### Apple Books exporter and real-library migration validation
+
+#### Outcome
+
+- Extended the existing Mac exporter with per-book, versioned Readest JSON while retaining its Markdown output.
+- Exported 1,538 annotations from 70 books, including 26 attached notes; all exported annotations have valid EPUB CFIs.
+- Located 404/404 annotations across six varied real EPUBs with Readest's production loader.
+- Imported and field-by-field verified all 15 annotations in the live sample book without changing its existing bookmark.
+
+#### Sync decision
+
+The source annotation modification time remains in the interchange file for provenance. Imported Readest notes use the file's stable `exportedAt` as `updatedAt`, because Readest's server pull is cursor-based and historical Apple timestamps can fall behind a device's existing cursor.
+
+#### Safety
+
+Before live mutation, captured and verified a PostgreSQL custom-format dump and the complete MinIO book bucket at `/mnt/passport2tb/root/shared_storage/backups/readest/apple-books-migration-2026-08-13`.
+
 ## 2026-08-12
 
 ### Apple Books annotation migration
@@ -29,6 +48,5 @@ Import Apple Books highlights and attached notes into the matching EPUB in Reade
 
 #### Next steps
 
-- Extend the existing Mac Apple Books exporter to emit the documented JSON interchange files.
-- Run a compatibility audit across additional Apple Books EPUBs when `m2book` or its shared code tree is available.
-
+- Make a self-host client release containing the importer when ready for normal UI use.
+- Optionally add an Apple-like default custom template to Readest's existing Markdown exporter.

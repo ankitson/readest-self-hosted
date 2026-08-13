@@ -30,6 +30,8 @@ export interface AppleBooksExportBook {
 export interface AppleBooksAnnotationsExport {
   format: typeof APPLE_BOOKS_EXPORT_FORMAT;
   version: typeof APPLE_BOOKS_EXPORT_VERSION;
+  /** Unix epoch milliseconds used as the Readest sync-visible migration time. */
+  exportedAt: number;
   book: AppleBooksExportBook;
   annotations: AppleBooksExportAnnotation[];
 }
@@ -84,6 +86,7 @@ export const parseAppleBooksAnnotationsExport = (
     if (
       value['format'] !== APPLE_BOOKS_EXPORT_FORMAT ||
       value['version'] !== APPLE_BOOKS_EXPORT_VERSION ||
+      !isFiniteTimestamp(value['exportedAt']) ||
       !isAppleBooksExportBook(value['book']) ||
       !Array.isArray(value['annotations']) ||
       !value['annotations'].every(isAppleBooksExportAnnotation)
@@ -131,7 +134,12 @@ export const convertAppleBooksExportToBookNotes = (
       color: appearance.color,
       note: annotation.note,
       createdAt: annotation.createdAt,
-      updatedAt: annotation.updatedAt,
+      // Readest pulls annotations by updatedAt. Using Apple's historical
+      // modification timestamp can place a newly imported note behind an
+      // existing device cursor, making it invisible on that device. The file's
+      // stable export timestamp propagates the migration and stays idempotent
+      // when the same file is imported again.
+      updatedAt: data.exportedAt,
     });
   }
   return Array.from(byId.values());

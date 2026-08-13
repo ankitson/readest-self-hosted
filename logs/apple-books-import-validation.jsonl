@@ -2,3 +2,9 @@
 {"date":"2026-08-12","check":"targeted-tests","test_files":2,"tests_passed":17,"result":"pass"}
 {"date":"2026-08-12","check":"full-tests","test_files_passed":588,"test_files_skipped":3,"tests_passed":7772,"tests_skipped":7,"result":"pass"}
 {"date":"2026-08-12","check":"lint","commands":["tsgo --noEmit","biome lint ."],"result":"pass"}
+{"date":"2026-08-13","check":"apple-export","books":70,"annotations":1538,"attached_notes":26,"annotations_with_epub_cfi":1538,"locally_accessible_epubs":65,"result":"pass"}
+{"date":"2026-08-13","check":"real-epub-audit","books":6,"annotations":404,"located":404,"unmatched":0,"result":"pass"}
+{"date":"2026-08-13","check":"live-sample-import","annotations_expected":15,"annotations_actual":15,"field_mismatches":0,"existing_bookmarks_preserved":1,"result":"pass"}
+{"date":"2026-08-13","check":"pre-migration-backup","postgres_dump_verified":true,"minio_archive_verified":true,"checksums_verified":true,"result":"pass"}
+{"date":"2026-08-13","check":"full-tests-after-sync-hardening","test_files_passed":588,"test_files_skipped":3,"tests_passed":7773,"tests_skipped":7,"result":"pass"}
+{"date":"2026-08-13","check":"lint-after-sync-hardening","commands":["tsgo --noEmit","biome lint ."],"files_checked":1788,"result":"pass"}

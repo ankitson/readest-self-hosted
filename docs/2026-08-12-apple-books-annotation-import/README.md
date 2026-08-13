@@ -12,6 +12,7 @@ Repeated imports are safe: `apple-books-<annotation UUID>` is the stable Readest
 {
   "format": "readest-apple-books-annotations",
   "version": 1,
+  "exportedAt": 1786605106320,
   "book": {
     "assetId": "Apple Books asset ID",
     "title": "Book title",
@@ -32,7 +33,7 @@ Repeated imports are safe: `apple-books-<annotation UUID>` is the stable Readest
 }
 ```
 
-Timestamps are Unix epoch milliseconds. Annotations without selected text or a valid EPUB CFI should not be exported into this format.
+Timestamps are Unix epoch milliseconds. `createdAt` and the annotation-level `updatedAt` preserve Apple Books source history. `exportedAt` becomes the imported Readest note's sync-visible `updatedAt`, ensuring a newly migrated historical annotation is newer than existing device sync cursors. Annotations without selected text or a valid EPUB CFI should not be exported into this format.
 
 ## Apple Books source fields
 
@@ -75,11 +76,50 @@ The Apple enum and CFI fields are corroborated by the open-source [calibre-annot
 
 ## User workflow
 
-1. Export Apple Books annotations into per-book `.json` files using the companion exporter.
-2. Open the matching EPUB in Readest.
-3. Open Annotations → Import Annotations → Apple Books.
-4. Select that book's `.json` file.
-5. Review the result toast for imported and unmatched counts.
+1. On `m2book`, run the companion exporter:
+
+   ```bash
+   cd ~/Documents/docs-root/projects/code/export-apple-books-highlights
+   python3 apple_books_highlights.py \
+     --output-dir ./exports \
+     --readest-output-dir ./readest-exports
+   ```
+
+2. Find the matching per-book file in `readest-exports/`.
+3. Open the matching EPUB in Readest.
+4. Open Annotations → Import Annotations → Apple Books.
+5. Select that book's `.json` file.
+6. Review the result toast for imported and unmatched counts.
+
+Repeated imports of the same file are safe because source UUIDs become stable Readest IDs and the file's `exportedAt` remains stable.
+
+## Migration validation
+
+The 2026-08-13 export contained 70 books, 1,538 annotations, and 26 attached notes. Apple Books had locally accessible EPUB packages for 65 of those books.
+
+Six materially different real EPUBs were opened with Readest's production document loader and passed through the complete locator:
+
+| Book | Coverage | Relevant variation |
+| --- | ---: | --- |
+| It's Not Always Depression | 15/15 | Shared sample; attached note |
+| The Gene | 180/180 | High annotation count; notes |
+| The Emperor of All Maladies | 162/162 | High count; alternate colors |
+| Project Hail Mary | 44/44 | Multiple attached notes |
+| The Hitchhiker's Guide to the Galaxy | 1/1 | Alternate color and note |
+| The Adventures of Sherlock Holmes | 2/2 | Apple Store EPUB package |
+
+Total: 404/404 located, zero unmatched.
+
+The live sample book was migrated after backing up Readest. A database comparison verified all 15 annotation IDs, CFIs, selected texts, notes, appearances, creation timestamps, and migration timestamps with zero mismatches. Its pre-existing Readest bookmark was preserved.
+
+## Recovery point
+
+The verified pre-migration backup is at:
+
+```text
+/mnt/passport2tb/root/shared_storage/backups/readest/apple-books-migration-2026-08-13
+```
+
+It contains a PostgreSQL custom-format dump, the complete Readest MinIO bucket archive, SHA-256 checksums, and content listings. `pg_restore --list`, archive listing, and checksum verification all passed before live data was changed.
 
 For Readest-to-Markdown, use the existing Annotations → Export Annotations action. Its advanced custom template can reproduce the older Apple Books Markdown layout if desired.
-
