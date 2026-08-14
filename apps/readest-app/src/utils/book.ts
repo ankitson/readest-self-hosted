@@ -80,12 +80,16 @@ const formatLanguageMap = (x: string | LanguageMap, defaultLang = false): string
   return defaultLang ? x[keys[0]!]! : x[userLang] || x[keys[0]!]!;
 };
 
-export const listFormater = (narrow = false, lang = '') => {
+export const listFormater = (
+  narrow = false,
+  lang = '',
+  type: Intl.ListFormatType = 'conjunction',
+) => {
   lang = lang ? lang : getUserLang();
   if (narrow) {
     return new Intl.ListFormat('en', { style: 'narrow', type: 'unit' });
   } else {
-    return new Intl.ListFormat(lang, { style: 'long', type: 'conjunction' });
+    return new Intl.ListFormat(lang, { style: 'long', type });
   }
 };
 
@@ -133,7 +137,10 @@ export const formatAuthors = (
   const langCode = getBookLangCode(bookLang) || 'en';
   const lastNameFirst = !!sortAs && LASTNAME_AUTHOR_SORT_LANGS.includes(langCode);
   return Array.isArray(contributors)
-    ? listFormater(langCode === 'zh', langCode).format(
+    ? // 'unit' not 'conjunction': an author list reads as "A, B, C", not
+      // "A, B, and C". A conjunction is for prose; a credit line is a list.
+      // (The narrow/zh branch already uses 'unit'.)
+      listFormater(langCode === 'zh', langCode, 'unit').format(
         contributors.map((contributor) =>
           typeof contributor === 'string'
             ? formatAuthorName(contributor, lastNameFirst)
