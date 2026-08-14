@@ -112,7 +112,11 @@ describe('titlesLikelyReferToSameBook', () => {
 
 const makeSection = (index: number, html: string): SectionItem => ({
   id: `chapter-${index}`,
-  cfi: CFI.fake.fromIndex(index).replace(')', `[chapter-${index}]!)`),
+  // No trailing `!`: a real section.cfi comes from CFI.fromElements and is a
+  // plain spine step. Adding one here made every joinIndir produce `!!`, a
+  // shape no book emits, so exact-CFI resolution silently fell back to text
+  // search and the assertions below passed either way.
+  cfi: CFI.fake.fromIndex(index).replace(')', `[chapter-${index}])`),
   size: html.length,
   linear: 'yes',
   createDocument: async () => new DOMParser().parseFromString(html, 'text/html'),
@@ -130,12 +134,20 @@ const makeBookDoc = (sections: SectionItem[]): BookDoc =>
 
 describe('locateAppleBooksAnnotationsInBook', () => {
   it('verifies and canonicalizes an Apple Books CFI against the target EPUB', async () => {
+    // The phrase appears TWICE, and the source CFI points at the second copy.
+    // Text search always finds the first, so only a genuinely resolved source
+    // CFI can land on the right one — without that, this test cannot tell the
+    // exact-CFI path from the fallback.
     const section = makeSection(
       0,
-      '<html><body id="book-body"><p>Before A highlighted passage After</p></body></html>',
+      '<html><body id="book-body">' +
+        '<p>Before A highlighted passage After</p>' +
+        '<p>Before A highlighted passage After</p>' +
+        '</body></html>',
     );
     const doc = await section.createDocument();
-    const text = doc.querySelector('p')!.firstChild!;
+    const secondParagraph = doc.querySelectorAll('p')[1]!;
+    const text = secondParagraph.firstChild!;
     const range = doc.createRange();
     range.setStart(text, 7);
     range.setEnd(text, 28);
@@ -152,6 +164,8 @@ describe('locateAppleBooksAnnotationsInBook', () => {
     expect(result.notes).toHaveLength(1);
     expect(result.notes[0]?.text).toBe('A highlighted passage');
     expect(result.notes[0]?.cfi).toMatch(/^epubcfi\(\/6\/2/);
+    // Resolved against the second paragraph, not re-derived from the first.
+    expect(result.notes[0]?.cfi).toBe(appleCfi);
   });
 
   it('falls back to selected-text matching when the source CFI no longer resolves', async () => {

@@ -218,6 +218,10 @@ export async function ingestFile(
   if (opts.groupId !== undefined) {
     book.groupId = opts.groupId;
     book.groupName = opts.groupName;
+    // Re-importing can regroup a book that already exists on other devices,
+    // and groupId/groupName are merged on the metadata clock — leave it unset
+    // and the merge ties, which resolves to the peer's old group.
+    book.metadataUpdatedAt = Date.now();
   }
 
   const tag = opts.subjectTag?.trim();
@@ -226,6 +230,8 @@ export async function ingestFile(
     if (!tags.includes(tag)) {
       book.tags = [...tags, tag];
       book.updatedAt = Date.now();
+      // tags is metadata-clocked too (see pickFresherMetadata).
+      book.metadataUpdatedAt = Date.now();
     }
   }
 

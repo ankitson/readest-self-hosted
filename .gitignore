@@ -57,3 +57,7 @@ result*
 
 # unsigned sideload IPAs
 /dist/
+
+# Personal library data (book titles, ISBNs) used by the one-off
+# metadata/migration scripts. Never commit: this repo is public.
+/tmp/

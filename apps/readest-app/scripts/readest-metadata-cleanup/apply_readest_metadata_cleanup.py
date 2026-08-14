@@ -17,7 +17,10 @@ from pathlib import Path
 from typing import Any
 
 SCRIPT_DIR = Path(__file__).resolve().parent
-DEFAULT_CORRECTIONS = SCRIPT_DIR / "readest-metadata-corrections.json"
+REPO_ROOT = SCRIPT_DIR.parents[3]
+# Kept out of git (see /tmp/ in .gitignore): the corrections file lists real
+# book titles and ISBNs from a personal library, and this repo is public.
+DEFAULT_CORRECTIONS = REPO_ROOT / "tmp" / "readest-metadata-corrections.json"
 IMMUTABLE_TABLES = ("book_configs", "book_notes", "files", "stat_books", "stat_pages")
 
 
