@@ -108,13 +108,17 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
     if (idx === undefined) return;
     const book = library[idx]!;
     const statusChanged = readingStatus !== book.readingStatus;
+    // See saveConfig: only a changed page position means the book was read. A
+    // status-only edit (marking something finished from the shelf) arrives here
+    // with the same progress and must not move Date Read.
+    const pageTurned = progress?.[0] !== undefined && progress[0] !== book.progress?.[0];
     const updatedBook: Book = {
       ...book,
       progress,
       readingStatus,
       readingStatusUpdatedAt: statusChanged ? Date.now() : book.readingStatusUpdatedAt,
       updatedAt: Date.now(),
-      lastReadAt: Date.now(),
+      lastReadAt: pageTurned ? Date.now() : book.lastReadAt,
     };
     const newLibrary = library.slice();
     newLibrary[idx] = updatedBook;

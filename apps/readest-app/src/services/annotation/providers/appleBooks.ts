@@ -217,9 +217,25 @@ const findSelectedTextRange = (doc: Document, selectedText: string): Range | nul
   return range;
 };
 
+/**
+ * Resolve an Apple Books CFI against the section document it points into.
+ *
+ * The exported CFI is book-relative and leads with the spine indirection step
+ * (`/6/2[chapter-0]!/…`), but `doc` is already that one section — so the spine
+ * step has to come off first, exactly as `utils/xcfi.ts` does. Passing the
+ * whole CFI makes `toRange` walk the section root with spine indices and hand
+ * back a collapsed, empty range, which silently demotes every annotation to the
+ * first-occurrence text search below.
+ */
 const resolveSourceCfiRange = (doc: Document, cfi: string): Range | null => {
   try {
-    const range = CFI.toRange(doc, CFI.parse(cfi));
+    const parsed = CFI.parse(cfi);
+    // A range CFI parses to { parent, start, end }; a point CFI to the parts
+    // array itself. The spine step is the first indirection segment of either.
+    const parts = parsed.parent ?? parsed;
+    if (!Array.isArray(parts) || parts.length < 2) return null;
+    parts.shift();
+    const range = CFI.toRange(doc, parsed);
     return range instanceof Range ? range : null;
   } catch {
     return null;

@@ -131,6 +131,10 @@ const GroupingModal: React.FC<GroupingModalProps> = ({
           book.groupId = undefined;
           book.groupName = undefined;
           book.updatedAt = Date.now();
+          // groupId/groupName are merged on the metadata clock, so this has
+          // to move too -- otherwise the clocks tie, the tie-break keeps the
+          // local value, and the move is reverted on the next sync.
+          book.metadataUpdatedAt = Date.now();
         }
       }
     });
@@ -152,10 +156,18 @@ const GroupingModal: React.FC<GroupingModalProps> = ({
             book.groupName = groupName;
             book.groupId = getGroupId(book.groupName);
             book.updatedAt = Date.now();
+            // groupId/groupName are merged on the metadata clock, so this has
+            // to move too -- otherwise the clocks tie, the tie-break keeps the
+            // local value, and the move is reverted on the next sync.
+            book.metadataUpdatedAt = Date.now();
           } else if (book.groupName?.startsWith(oldGroupName + '/')) {
             book.groupName = book.groupName.replace(oldGroupName, groupName);
             book.groupId = getGroupId(book.groupName);
             book.updatedAt = Date.now();
+            // groupId/groupName are merged on the metadata clock, so this has
+            // to move too -- otherwise the clocks tie, the tie-break keeps the
+            // local value, and the move is reverted on the next sync.
+            book.metadataUpdatedAt = Date.now();
           }
         });
 
@@ -208,6 +220,10 @@ const GroupingModal: React.FC<GroupingModalProps> = ({
           book.groupId = selectedGroup.id;
           book.groupName = selectedGroup.name;
           book.updatedAt = Date.now();
+          // groupId/groupName are merged on the metadata clock, so this has
+          // to move too -- otherwise the clocks tie, the tie-break keeps the
+          // local value, and the move is reverted on the next sync.
+          book.metadataUpdatedAt = Date.now();
         }
       }
     });

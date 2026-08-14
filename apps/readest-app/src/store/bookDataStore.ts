@@ -138,11 +138,20 @@ export const useBookDataStore = create<BookDataState>((set, get) => ({
     // and the visibleLibrary cache stays in sync via setLibrary's full update.
     const now = Date.now();
     const original = library[idx]!;
+    // lastReadAt drives the Date Read sort, so it must only move when the
+    // reader actually moved through the book. saveConfig fires for plenty of
+    // non-reading writes too — font/layout changes (helpers/settings.ts) and
+    // the Apple Books annotation import both land here — and stamping it
+    // unconditionally reintroduces on the new clock exactly the contamination
+    // updatedAt already has. A changed page position is the reading signal;
+    // going backwards counts, since re-reading is still reading.
+    const pageTurned =
+      config.progress?.[0] !== undefined && config.progress[0] !== original.progress?.[0];
     const updatedBook: Book = {
       ...original,
       progress: config.progress,
       updatedAt: now,
-      lastReadAt: now,
+      lastReadAt: pageTurned ? now : original.lastReadAt,
       downloadedAt: original.downloadedAt || now,
     };
     const newLibrary = [updatedBook, ...library.slice(0, idx), ...library.slice(idx + 1)];
