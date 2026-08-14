@@ -17,7 +17,7 @@ const makeExport = () => ({
   exportedAt: 1_756_000_002_000,
   book: {
     assetId: 'asset-1',
-    title: "A Study of Tides: Coastal Rhythms",
+    title: 'A Study of Tides: Coastal Rhythms',
     author: 'Marta Devereux',
     epubId: 'urn:uuid:book-1',
   },
@@ -38,7 +38,7 @@ describe('parseAppleBooksAnnotationsExport', () => {
   it('parses the versioned Apple Books annotations interchange format', () => {
     const parsed = parseAppleBooksAnnotationsExport(JSON.stringify(makeExport()));
 
-    expect(parsed?.book.title).toContain("A Study of Tides");
+    expect(parsed?.book.title).toContain('A Study of Tides');
     expect(parsed?.annotations).toHaveLength(1);
     expect(parsed?.annotations[0]?.cfi).toBe(SAMPLE_CFI);
   });
@@ -98,10 +98,7 @@ describe('convertAppleBooksExportToBookNotes', () => {
 describe('titlesLikelyReferToSameBook', () => {
   it('accepts punctuation and subtitle differences', () => {
     expect(
-      titlesLikelyReferToSameBook(
-        "A Study of Tides",
-        "A Study of Tides: Coastal Rhythms",
-      ),
+      titlesLikelyReferToSameBook('A Study of Tides', 'A Study of Tides: Coastal Rhythms'),
     ).toBe(true);
   });
 

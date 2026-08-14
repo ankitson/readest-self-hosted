@@ -18,7 +18,7 @@
 
 - Added Apple FairPlay payload detection to prevent encrypted Store EPUBs from entering migration plans as apparently parseable books.
 - Added invalid-XHTML HTML fallback for selected-text annotation recovery.
-- Migrated three newly readable Apple Books and the recovered one migrated book highlight; intentionally excluded one unselected download and two FairPlay-protected packages.
+- Migrated three newly readable Apple Books and the one recovered highlight; intentionally excluded one unselected download and two FairPlay-protected packages.
 
 ### Apple Books full-library migration tooling
 

@@ -28,7 +28,7 @@
 
 - Cleaned 94/191 live book records and left 97 already-clean records untouched.
 - Removed every `UnknownAuthor` and filename-like title; only two self-published PDFs remain without a stable identifier.
-- Added high-confidence series metadata for the GPU and Hitchhiker's books plus other known series.
+- Added high-confidence series metadata for the book groups that had a clear published series.
 
 #### Timestamp decision
 
@@ -47,7 +47,7 @@
 #### Outcome
 
 - Re-exported Apple Books after five requested downloads and retained the complete fresh manifest for audit.
-- Migrated three newly readable books, including the affected book's one highlight and source reading state.
+- Migrated three newly readable books, including one recovered highlight and its source reading state.
 - Excluded the incidentally downloaded ArtMash per the user's selected scope.
 - Rejected Middlemarch and the Tolstoy collection because their reading resources use Apple FairPlay encryption.
 
