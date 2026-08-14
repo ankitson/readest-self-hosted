@@ -61,3 +61,7 @@ result*
 # Personal library data (book titles, ISBNs) used by the one-off
 # metadata/migration scripts. Never commit: this repo is public.
 /tmp/
+
+# Run logs from the one-off migration/cleanup scripts. They record counts and
+# outcomes for a personal library and occasionally name a book; keep them local.
+/logs/

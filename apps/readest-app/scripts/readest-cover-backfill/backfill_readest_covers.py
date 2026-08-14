@@ -12,6 +12,7 @@ import base64
 import hashlib
 import io
 import json
+import os
 import posixpath
 import re
 import subprocess
@@ -27,12 +28,27 @@ import pymupdf
 from botocore.config import Config
 from PIL import Image
 
-PREFERRED_COVER_URLS = {
-    # Exact publisher/catalog covers selected after visual review of the full
-    # contact sheet; the local files contain only a plain title page or no file.
-    "888ac991d71294d7c112b1432c272a0b": "https://covers.openlibrary.org/b/isbn/9780073523408-L.jpg?default=false",
-    "335d8ae6086de16d8b9ef1fc221a9fd9": "https://cdn.penguin.co.uk/dam-assets/books/9780141043883/9780141043883-jacket-large.jpg",
-}
+SCRIPT_DIR = Path(__file__).resolve().parent
+REPO_ROOT = SCRIPT_DIR.parents[3]
+# Per-book cover overrides: {"<book_hash>": "https://…"} for the handful whose
+# embedded image is a plain title page. This is library-specific data — book
+# hashes plus the exact edition each maps to — so it is read from a gitignored
+# file rather than baked into a script this public repo ships. Absent file means
+# no overrides, which is the correct default for anyone else.
+COVER_OVERRIDES_FILE = Path(
+    os.environ.get("READEST_COVER_OVERRIDES", REPO_ROOT / "tmp" / "cover-overrides.json")
+)
+
+
+def load_cover_overrides() -> dict[str, str]:
+    """Read the optional per-book cover override map."""
+    if not COVER_OVERRIDES_FILE.is_file():
+        return {}
+    data = json.loads(COVER_OVERRIDES_FILE.read_text())
+    return {str(k): str(v) for k, v in data.items()}
+
+
+PREFERRED_COVER_URLS = load_cover_overrides()
 
 
 def read_environment_file(path: Path) -> dict[str, str]:

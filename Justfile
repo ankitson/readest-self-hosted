@@ -1,11 +1,11 @@
 set shell := ["bash", "-e", "-o", "pipefail", "-c"]
 
-apple_migration_root := env_var_or_default("APPLE_BOOKS_MIGRATION_ROOT", "/mnt/passport2tb/root/shared_storage/backups/readest/apple-books-library-migration-2026-08-13")
+apple_migration_root := env_var_or_default("APPLE_BOOKS_MIGRATION_ROOT", "./tmp/apple-books-library-migration")
 apple_migration_scripts := "apps/readest-app/scripts/apple-books-library-migration"
 metadata_cleanup_scripts := "apps/readest-app/scripts/readest-metadata-cleanup"
 cover_backfill_scripts := "apps/readest-app/scripts/readest-cover-backfill"
-metadata_cleanup_root := env_var_or_default("READEST_METADATA_CLEANUP_ROOT", "/mnt/passport2tb/root/shared_storage/backups/readest/readest-metadata-cleanup-2026-08-13")
-readest_env := env_var_or_default("READEST_ENV_FILE", "/home/ankit/hroot/devserver/secrets/readest.secrets.env")
+metadata_cleanup_root := env_var_or_default("READEST_METADATA_CLEANUP_ROOT", "./tmp/readest-metadata-cleanup")
+readest_env := env_var_or_default("READEST_ENV_FILE", "./secrets/readest.secrets.env")
 
 default:
     @just --list

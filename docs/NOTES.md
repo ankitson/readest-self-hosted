@@ -106,7 +106,7 @@ The source annotation modification time remains in the interchange file for prov
 
 #### Safety
 
-Before live mutation, captured and verified a PostgreSQL custom-format dump and the complete MinIO book bucket at `/mnt/passport2tb/root/shared_storage/backups/readest/apple-books-migration-2026-08-13`.
+Before live mutation, captured and verified a PostgreSQL custom-format dump and the complete MinIO book bucket at `$READEST_BACKUP_ROOT/apple-books-migration-2026-08-13`.
 
 ## 2026-08-12
 
