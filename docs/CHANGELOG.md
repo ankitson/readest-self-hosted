@@ -1,3 +1,42 @@
+## 2026-08-14
+
+### Metadata sync correctness
+
+- Fixed the Apple Books importer discarding the spine step before resolving a
+  source CFI, so exact-CFI placement works instead of always falling back to
+  first-occurrence text search. Strengthened the test that was passing either way.
+- Gated `lastReadAt` on a changed page position in both `saveConfig` and
+  `updateBookProgress`, so font/layout changes, the annotation import and
+  status-only edits no longer move Date Read.
+- Stamped `metadataUpdatedAt` on every group/tag mutation in `GroupingModal` and
+  `ingestService`, ending a revert loop between devices; added a merge test and a
+  source-level guard test.
+- Changed `formatAuthors` to `Intl.ListFormat` type `unit`, rendering author
+  lists as `A, B, C`.
+
+### Library data canonicalization
+
+- Canonicalized 131 identifiers to `urn:isbn:` / `urn:uuid:` form, repaired one
+  malformed `urn|nid|payload`, and left URLs, ASINs and opaque publisher ids
+  untouched.
+- Normalized all 191 author values to arrays, splitting 16 joined multi-author
+  strings; guarded organisation names containing "and" and stripped role prefixes
+  before splitting.
+- Filled 20 missing languages and repaired 18 malformed ones (`eng`, `En`,
+  `EN-US`, `eee`, `und`, duplicated arrays, one wrong language code); kept valid
+  regional variants.
+- Filled 2 titles, 1 author and 2 publication dates; identified 2 self-published
+  books by their canonical author-domain URL.
+- Removed the 6 bundled demo-shelf rows and one metadata-only stub via tombstones,
+  and purged 2 long-standing tombstones; every remaining book now has a file, a
+  cover, a language and an identifier.
+
+### Documentation
+
+- Added `docs/METADATA-CONVENTIONS.md` recording the metadata scheme, the two
+  hashes and what each keys, and the changes deliberately not made — with the
+  measurements behind each decision.
+
 ## 2026-08-13
 
 ### Durable metadata sync, Date Read, and cover backfill

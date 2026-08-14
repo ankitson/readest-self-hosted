@@ -1,3 +1,57 @@
+## 2026-08-14
+
+### Library metadata canonicalization and sync-clock fixes
+
+#### Goal
+
+Establish one consistent scheme for book metadata — identifiers, authors,
+languages — and make sure the scheme survives contact with upstream and with
+every client.
+
+#### Discovery
+
+- `meta_hash` is computed from the metadata parsed out of the book **file**, at
+  all three write sites, never from the `metadata` column. Server-side metadata
+  edits therefore cannot re-key a book, and the hash-safety guard written for the
+  first audit pass was solving a non-problem — it had refused 12 edits for no
+  reason.
+- `normalizeIdentifier` has three real defects (case-sensitive `urn:`, non-`urn`
+  URI schemes stripped, payload not canonicalized). Measured against the library,
+  all three cost nothing: a hash needs to be deterministic, not correct-looking,
+  and none of the three duplicate-title groups would merge if they were fixed.
+- `utils/book.ts` sees roughly one upstream edit to the identifier/hash region
+  every two months, merged by an unattended nightly cron. Upstream's most recent
+  change there was fixing *over*-merging.
+- Group and tag mutations bumped only `updatedAt` while those fields merge on the
+  metadata clock, so the clocks tied, ties resolved to local, and two devices
+  would revert each other indefinitely.
+- The Apple Books importer passed a whole book-relative CFI to `CFI.toRange`
+  without stripping the spine step, so the exact-CFI path never resolved and every
+  annotation was placed by first-occurrence text search.
+- `lastReadAt` was stamped on every `saveConfig`, including font changes and the
+  annotation import — reintroducing on the new clock the contamination it was
+  added to escape.
+
+#### Decision
+
+Fix the **data**, not the identifier logic. See `docs/METADATA-CONVENTIONS.md`
+for the full follow / do-not-follow list and the reasoning. The reducer and the
+`uuid > calibre > isbn` precedence are left exactly as upstream ships them.
+
+#### Verification
+
+Each pass ran as a dry run, then the full statement set inside a transaction
+ending in `ROLLBACK` with probes (row counts, note counts, `metadata` encoding
+shape, `updated_at` immobility), then the real apply with the same probes
+compared. `pg_dumpall` taken before each. Notes held at 1,556 throughout.
+
+#### Next steps
+
+- Three books show a decorative divider as their cover: they are text-only
+  Gutenberg EPUBs with no cover image and no `<meta name="cover">`, so extraction
+  fell back to the only image present. Needs real artwork and an edition choice.
+- Tombstones from this cleanup can be purged once every device has synced.
+
 ## 2026-08-13
 
 ### Durable Readest metadata and cover follow-up
