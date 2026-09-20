@@ -70,3 +70,11 @@ readest-cover-backfill-prepare:
     cd {{cover_backfill_scripts}} && uv run --script backfill_readest_covers.py \
       --output-dir {{metadata_cleanup_root}}/covers \
       --env-file {{readest_env}}
+
+# Inventory this fork's divergence from upstream. Read docs/FORK.md alongside it.
+fork-delta *ARGS:
+    ./scripts/fork-delta.py {{ARGS}}
+
+# Fail if divergence in upstream's own files has grown past the budget.
+fork-delta-check:
+    ./scripts/fork-delta.py --check
