@@ -12,6 +12,7 @@ import { useClipUrlIngress } from '@/hooks/useClipUrlIngress';
 import { useSettingsStore } from '@/store/settingsStore';
 import { useAutoUpdateCheck } from '@/hooks/useAutoUpdateCheck';
 import { tauriHandleSetAlwaysOnTop } from '@/utils/window';
+import ClipSignInAlert from '@/components/ClipSignInAlert';
 import Reader from './components/Reader';
 
 // This is only used for the Tauri app in the app router
@@ -36,5 +37,10 @@ export default function Page() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [appService?.hasWindow, settings.alwaysOnTop]);
 
-  return <Reader />;
+  return (
+    <>
+      <Reader />
+      <ClipSignInAlert />
+    </>
+  );
 }

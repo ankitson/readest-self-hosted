@@ -23,7 +23,11 @@ android {
         keystoreProperties.load(FileInputStream(keystorePropertiesFile))
     }
     defaultConfig {
-        manifestPlaceholders["usesCleartextTraffic"] = "false"
+        // Plain-http LAN media servers (Audiobookshelf and friends) stream through
+        // the webview audio element, which obeys this manifest flag; native plugin
+        // HTTP already allows cleartext. Scoped alternative (custom-scheme stream
+        // proxy) is tracked as a follow-up.
+        manifestPlaceholders["usesCleartextTraffic"] = "true"
         // Sentry DSN precedence: environment (CI secret / shell export) wins,
         // else the gitignored .env.local, else .env at the app root (../../../
         // from this module). Empty => Sentry auto-init no-ops.
@@ -45,6 +49,16 @@ android {
         versionName = tauriProperties.getProperty("tauri.android.versionName", "1.0")
         val storeFlavor = project.findProperty("storeFlavor")?.toString() ?: "foss"
         missingDimensionStrategy("store", storeFlavor)
+        // Android Auto ships to the FOSS/GitHub builds only. Play's Auto
+        // review rejected version code 11020 for inconsistent in-car audio and
+        // blocked the entire release (#5038, #5235), so the Play build resolves
+        // the car meta-data to an inert name: Auto ignores it and Play does not
+        // put the submission through Auto review. Nothing else reads it.
+        manifestPlaceholders["carAppMetaName"] = if (storeFlavor == "googleplay") {
+            "com.bilingify.readest.androidauto.withheld"
+        } else {
+            "com.google.android.gms.car.application"
+        }
     }
     signingConfigs {
         if (keystorePropertiesFile.exists()) {

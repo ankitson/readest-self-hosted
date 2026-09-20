@@ -74,6 +74,11 @@ vi.mock('@/helpers/settings', () => ({
 
 vi.mock('@/app/reader/utils/annotatorUtil', () => ({
   getHighlightColorLabel: () => undefined,
+  // AnnotationPopup -> AnnotationNotes -> AnnotationNoteItem ->
+  // useSaveBooknoteNoteText imports these; a browser-mode mock is a strict
+  // ESM module, so every named import along the chain must exist.
+  decideNoteBubbleTransition: () => 'none',
+  applyNoteBubbleTransition: () => {},
 }));
 
 // ── Real component imports ──────────────────────────────────────────────
@@ -118,8 +123,11 @@ const expectElement = (locator: unknown) =>
  * where the triangle points up and highlight options float above.
  */
 const Wrapper: React.FC<{ children: React.ReactNode }> = ({ children }) => (
+  // One of the app's own themes, not daisyUI's stock `dark`: the stock palette
+  // is daisyUI's to change between releases (it did in v5), while the app's
+  // themes are pinned in themes.ts.
   <div
-    data-theme='dark'
+    data-theme='default-dark'
     style={{
       position: 'relative',
       width: POPUP_W,
@@ -211,5 +219,139 @@ describe('AnnotationPopup layout screenshot', () => {
     await expectElement(page.elementLocator(wrapper)).toMatchScreenshot(
       'annotation-popup-15-colors',
     );
+  });
+});
+
+// ── Anchoring ───────────────────────────────────────────────────────────
+
+// The popup is handed coordinates in the coordinate space of the book cell
+// (`#gridcell-<bookKey>`, `position: relative`): Annotator subtracts that
+// cell's rect in getPosition/getPopupPosition. Its own wrapper therefore must
+// not become a viewport-anchored containing block, or the toolbar renders
+// `cell.left` px off the selection — which is what a `fixed inset-0` stacking
+// wrapper did (#6036), visible as soon as the sidebar pushes the cell off the
+// viewport origin.
+const CELL_LEFT = 240;
+const CELL_TOP = 32;
+const ANCHOR = { x: 120, y: 90 };
+
+const renderInCell = (extra?: React.ReactNode) =>
+  render(
+    <div
+      id='gridcell-test'
+      style={{
+        position: 'relative',
+        marginLeft: CELL_LEFT,
+        marginTop: CELL_TOP,
+        width: 500,
+        height: 400,
+      }}
+    >
+      <AnnotationPopup
+        bookKey='test'
+        dir='ltr'
+        isVertical={false}
+        buttons={toolButtons}
+        notes={[]}
+        position={{ dir: 'down', point: ANCHOR }}
+        trianglePosition={{ dir: 'down', point: { x: ANCHOR.x + POPUP_W / 2, y: ANCHOR.y } }}
+        highlightOptionsVisible={false}
+        selectedStyle='highlight'
+        selectedColor='yellow'
+        popupWidth={POPUP_W}
+        popupHeight={POPUP_H}
+        onHighlight={vi.fn()}
+        onDismiss={vi.fn()}
+      />
+      {extra}
+    </div>,
+  );
+
+describe('AnnotationPopup anchoring', () => {
+  it('anchors to the book cell it is positioned against, not the viewport', () => {
+    const { container } = renderInCell();
+    const cell = container.querySelector('#gridcell-test') as HTMLElement;
+    const popup = container.querySelector('#popup-container') as HTMLElement;
+    const cellRect = cell.getBoundingClientRect();
+    const popupRect = popup.getBoundingClientRect();
+    expect({
+      x: Math.round(popupRect.left - cellRect.left),
+      y: Math.round(popupRect.top - cellRect.top),
+    }).toEqual(ANCHOR);
+  });
+
+  it('still yields the pixels it shares with the z-[44] handle layer', () => {
+    const { container } = renderInCell(
+      // Stand-in for SelectionRangeEditor/AnnotationRangeEditor, which draw
+      // their grab handles over the selection the toolbar opens on. Inline
+      // styles, not Tailwind classes: this file is not a Tailwind source.
+      <div style={{ position: 'fixed', inset: 0, zIndex: 44, pointerEvents: 'none' }}>
+        <div
+          data-testid='handle'
+          style={{ position: 'absolute', inset: 0, pointerEvents: 'auto' }}
+        />
+      </div>,
+    );
+    const popupRect = (
+      container.querySelector('#popup-container') as HTMLElement
+    ).getBoundingClientRect();
+    const hit = document.elementFromPoint(
+      popupRect.left + popupRect.width / 2,
+      popupRect.top + popupRect.height / 2,
+    ) as HTMLElement | null;
+    expect(hit?.dataset['testid']).toBe('handle');
+  });
+});
+
+// A full-page selection clamps the toolbar to the cell edge. Its floating
+// style/color strip must flip inward rather than disappear outside the cell.
+describe('AnnotationPopup full-page selection (#6162)', () => {
+  it.each([
+    'up',
+    'down',
+    'left',
+    'right',
+  ] as const)('keeps the %s style/color strip inside the book cell and clickable', async (dir) => {
+    const vertical = dir === 'left' || dir === 'right';
+    const onHighlight = vi.fn();
+    const point = {
+      x: dir === 'right' ? 356 : 10,
+      y: dir === 'down' ? 446 : 10,
+    };
+    const { container } = render(
+      <div
+        data-eink='true'
+        style={{ position: 'fixed', left: 40, top: 20, width: 410, height: 500 }}
+      >
+        <AnnotationPopup
+          bookKey='test'
+          dir='ltr'
+          isVertical={vertical}
+          buttons={toolButtons}
+          notes={[]}
+          position={{ dir, point }}
+          trianglePosition={{ dir, point: { x: point.x, y: point.y + 20 } }}
+          highlightOptionsVisible
+          selectedStyle='highlight'
+          selectedColor='yellow'
+          popupWidth={POPUP_W}
+          popupHeight={POPUP_H}
+          onHighlight={onHighlight}
+          onDismiss={vi.fn()}
+        />
+      </div>,
+    );
+    const cell = container.firstElementChild as HTMLElement;
+    const options = container.querySelector<HTMLElement>('.highlight-options')!;
+    await vi.waitFor(() => {
+      const bounds = cell.getBoundingClientRect();
+      const rect = options.getBoundingClientRect();
+      expect(rect.top).toBeGreaterThanOrEqual(bounds.top);
+      expect(rect.bottom).toBeLessThanOrEqual(bounds.bottom);
+      expect(rect.left).toBeGreaterThanOrEqual(bounds.left);
+      expect(rect.right).toBeLessThanOrEqual(bounds.right);
+    });
+    await page.elementLocator(options.querySelector('button')!).click();
+    await vi.waitFor(() => expect(onHighlight).toHaveBeenCalledWith(true));
   });
 });

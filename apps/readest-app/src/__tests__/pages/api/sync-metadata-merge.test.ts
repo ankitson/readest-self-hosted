@@ -1,51 +1,78 @@
 import { describe, expect, it } from 'vitest';
+import { bookMetadataChanged, resolveMetadataMerge } from '@/pages/api/sync';
 
-import { metadataChanged, resolveMetadataMerge } from '@/pages/api/sync';
-import type { DBBook } from '@/types/records';
+const iso = (ms: number) => new Date(ms).toISOString();
 
-const book = (overrides: Partial<DBBook>): DBBook =>
-  ({
-    user_id: 'user',
-    book_hash: 'hash',
-    format: 'EPUB',
-    title: 'Title',
-    author: 'Author',
-    ...overrides,
-  }) as DBBook;
+const clientFields = {
+  title: 'Edited Title',
+  author: 'Edited Author',
+  tags: ['news'],
+  metadata: '{"language":"sv"}',
+  metadata_updated_at: null as string | null,
+};
 
-describe('metadata field-level merge', () => {
-  it('keeps newer server metadata when client reading progress has a newer row clock', () => {
-    const client = book({
-      title: 'Stale title',
-      updated_at: '2026-08-13T12:00:00Z',
-      metadata_updated_at: null,
-    });
-    const server = book({
-      title: 'Correct title',
-      updated_at: '2024-01-01T00:00:00Z',
-      metadata_updated_at: '2026-08-13T11:00:00Z',
-    });
+const serverFields = {
+  title: 'Old Title',
+  author: 'Old Author',
+  tags: ['old'],
+  metadata: '{"language":"en"}',
+  metadata_updated_at: null as string | null,
+};
 
-    expect(resolveMetadataMerge(client, server).title).toBe('Correct title');
+describe('resolveMetadataMerge (issue #5438)', () => {
+  it('keeps the client metadata when its metadata_updated_at is newer', () => {
+    const out = resolveMetadataMerge(
+      { ...clientFields, metadata_updated_at: iso(200) },
+      { ...serverFields, metadata_updated_at: iso(100) },
+      false,
+    );
+    expect(out).toEqual({ ...clientFields, metadata_updated_at: iso(200) });
   });
 
-  it('falls back to the legacy row clock when neither side has a metadata clock', () => {
-    const client = book({ title: 'Old', updated_at: '2024-01-01T00:00:00Z' });
-    const server = book({ title: 'New', updated_at: '2024-02-01T00:00:00Z' });
-
-    expect(resolveMetadataMerge(client, server).title).toBe('New');
+  it('keeps the server metadata when its stamp is newer, even when the client wins the row', () => {
+    // The reported clobber: another device turns a page (newer updated_at,
+    // stale metadata) after this metadata was edited. The row goes to the
+    // client, but the metadata edit must survive.
+    const out = resolveMetadataMerge(
+      { ...clientFields, metadata_updated_at: iso(100) },
+      { ...serverFields, metadata_updated_at: iso(300) },
+      true,
+    );
+    expect(out).toEqual({ ...serverFields, metadata_updated_at: iso(300) });
   });
 
-  it('detects changed metadata values but ignores timestamp-only changes', () => {
-    const server = book({ title: 'Same', metadata_updated_at: '2024-01-01T00:00:00Z' });
+  it('falls back to the row winner when neither side is stamped (legacy rows)', () => {
+    expect(resolveMetadataMerge(clientFields, serverFields, true)).toEqual(clientFields);
+    expect(resolveMetadataMerge(clientFields, serverFields, false)).toEqual(serverFields);
+  });
+
+  it('equal stamps follow the row winner', () => {
+    const client = { ...clientFields, metadata_updated_at: iso(150) };
+    const server = { ...serverFields, metadata_updated_at: iso(150) };
+    expect(resolveMetadataMerge(client, server, true)).toEqual(client);
+    expect(resolveMetadataMerge(client, server, false)).toEqual(server);
+  });
+});
+
+describe('bookMetadataChanged', () => {
+  it('false when every field matches (no propagation churn)', () => {
+    expect(bookMetadataChanged(serverFields, { ...serverFields })).toBe(false);
+  });
+
+  it('treats undefined and null metadata/tags as equal', () => {
     expect(
-      metadataChanged(
-        { ...resolveMetadataMerge(server, server), metadata_updated_at: '2024-02-01T00:00:00Z' },
-        server,
+      bookMetadataChanged(
+        { title: 'T', author: 'A', tags: undefined, metadata: undefined },
+        { title: 'T', author: 'A', tags: undefined, metadata: null },
       ),
     ).toBe(false);
-    expect(
-      metadataChanged({ ...resolveMetadataMerge(server, server), title: 'Changed' }, server),
-    ).toBe(true);
+  });
+
+  it('true when the metadata payload differs', () => {
+    expect(bookMetadataChanged(clientFields, serverFields)).toBe(true);
+  });
+
+  it('true when only tags differ', () => {
+    expect(bookMetadataChanged({ ...serverFields, tags: ['other'] }, serverFields)).toBe(true);
   });
 });

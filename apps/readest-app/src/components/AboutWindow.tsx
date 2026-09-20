@@ -1,11 +1,15 @@
 import { useEffect, useState } from 'react';
 import Image from 'next/image';
+import { invoke } from '@tauri-apps/api/core';
 import { useEnv } from '@/context/EnvContext';
 import { useTranslation } from '@/hooks/useTranslation';
 import { useSettingsStore } from '@/store/settingsStore';
 import { checkForAppUpdates, checkAppReleaseNotes } from '@/helpers/updater';
+import { isTauriAppPlatform } from '@/services/environment';
 import { parseWebViewInfo } from '@/utils/ua';
 import { getAppVersion } from '@/utils/version';
+import { writeTextToClipboard } from '@/utils/clipboard';
+import { eventDispatcher } from '@/utils/event';
 import { getBuildInfo, getBuildCommitUrl } from '@/utils/build';
 import SupportLinks from './SupportLinks';
 import LegalLinks from './LegalLinks';
@@ -36,6 +40,24 @@ export const AboutWindow = () => {
   useEffect(() => {
     setBrowserInfo(parseWebViewInfo(appService));
 
+    // The User-Agent is reduced to a stub on Windows WebView2, so ask the
+    // Rust side for the runtime's real version and upgrade the label when it
+    // answers. The component mounts with the library/reader pages, so this
+    // fires on page mount rather than when the dialog opens; the UA-derived
+    // label is on screen meanwhile, so nothing blocks on it.
+    let cancelled = false;
+    if (isTauriAppPlatform()) {
+      invoke<{ engine: string; version: string } | null>('get_webview_version')
+        .then((info) => {
+          if (info && !cancelled) setBrowserInfo(`${info.engine} ${info.version}`);
+        })
+        .catch((error) => {
+          if (!cancelled) {
+            console.warn('[AboutWindow] get_webview_version failed:', error);
+          }
+        });
+    }
+
     const handleCustomEvent = (event: CustomEvent) => {
       setIsOpen(event.detail.visible);
     };
@@ -46,6 +68,7 @@ export const AboutWindow = () => {
     }
 
     return () => {
+      cancelled = true;
       if (el) {
         el.removeEventListener('setDialogVisibility', handleCustomEvent as EventListener);
       }
@@ -82,13 +105,29 @@ export const AboutWindow = () => {
     setUpdateStatus(null);
   };
 
+  const versionInfo = `${_('Version {{version}}', { version: getAppVersion() })} (${browserInfo})`;
+
+  // Mobile users can't select the version string to paste it into a bug
+  // report (#5285), so tapping the label copies it. The label itself stays
+  // localized; the copied string is locale-neutral and names the app first.
+  const handleCopyVersion = async () => {
+    const copied = await writeTextToClipboard(`Readest ${getAppVersion()} (${browserInfo})`);
+    if (!copied) return;
+    eventDispatcher.dispatch('toast', {
+      type: 'info',
+      message: _('Copied to clipboard'),
+      className: 'whitespace-nowrap',
+      timeout: 2000,
+    });
+  };
+
   return (
     <Dialog
       id='about_window'
       isOpen={isOpen}
       title={_('About Readest')}
       onClose={handleClose}
-      boxClassName='sm:!w-[480px] sm:!max-w-screen-sm sm:h-auto'
+      boxClassName='sm:w-[480px]! sm:max-w-(--breakpoint-sm)! sm:h-auto'
     >
       {isOpen && (
         <div className='about-content flex flex-col items-center justify-center gap-4 pb-10 sm:pb-0'>
@@ -98,9 +137,16 @@ export const AboutWindow = () => {
             </div>
             <div className='flex select-text flex-col items-center'>
               <h2 className='mb-2 text-2xl font-bold'>Readest</h2>
-              <p className='text-neutral-content text-center text-sm'>
-                {_('Version {{version}}', { version: getAppVersion() })} {`(${browserInfo})`}
-              </p>
+              <button
+                type='button'
+                title={_('Copy')}
+                className='text-neutral-content text-center text-sm'
+                onClick={handleCopyVersion}
+              >
+                {versionInfo}
+              </button>
+              {/* Fork-local: which repo and commit this build came from. Sits
+                  under upstream's copyable version label, not instead of it. */}
               {buildInfo && (
                 <p className='text-neutral-content mt-1 text-center text-xs'>
                   <Link href={getBuildCommitUrl(buildInfo)} className='text-blue-500 underline'>

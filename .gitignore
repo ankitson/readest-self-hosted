@@ -65,3 +65,11 @@ result*
 # Run logs from the one-off migration/cleanup scripts. They record counts and
 # outcomes for a personal library and occasionally name a book; keep them local.
 /logs/
+fastlane/staging/
+fastlane/metadata-play/android/en-US/changelogs
+
+apps/readest.koplugin/bin/
+apps/readest.koplugin/native/localsend-bin/target/
+
+# scripts/tauri.mjs parks the wry Cargo.lock here during a Linux CEF build
+/Cargo.lock.wry

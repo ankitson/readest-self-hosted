@@ -3,12 +3,7 @@ import clsx from 'clsx';
 import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 
-import { Auth } from '@supabase/auth-ui-react';
-import { ThemeSupa } from '@supabase/auth-ui-shared';
-import { FcGoogle } from 'react-icons/fc';
-import { FaApple, FaGithub, FaDiscord } from 'react-icons/fa';
 import { IoArrowBack } from 'react-icons/io5';
-import { MdDns } from 'react-icons/md';
 
 import { useAuth } from '@/context/AuthContext';
 import { supabase } from '@/utils/supabase';
@@ -16,6 +11,7 @@ import { useEnv } from '@/context/EnvContext';
 import { useTheme } from '@/hooks/useTheme';
 import { useThemeStore } from '@/store/themeStore';
 import { useSettingsStore } from '@/store/settingsStore';
+import { useEnsureSettingsLoaded } from '@/hooks/useEnsureSettingsLoaded';
 import { useTranslation } from '@/hooks/useTranslation';
 import { useTrafficLightStore } from '@/store/trafficLightStore';
 import { getBaseUrl, isTauriAppPlatform } from '@/services/environment';
@@ -28,58 +24,40 @@ import { getUserProfilePlan } from '@/utils/access';
 import { getAppleIdAuth, Scope } from './utils/appleIdAuth';
 import { authWithCustomTab, authWithSafari } from './utils/nativeAuth';
 import WindowButtons from '@/components/WindowButtons';
+import type { OAuthProvider } from './components/ProviderLogin';
+import AuthPanel from './components/AuthPanel';
+// Fork-local: lets a user point this client at a self-hosted server from the
+// sign-in screen, before any account exists on it.
 import ServerSettingsPanel from '@/components/settings/ServerSettingsPanel';
-
-type OAuthProvider = 'google' | 'apple' | 'azure' | 'github' | 'discord';
 
 interface SingleInstancePayload {
   args: string[];
   cwd: string;
 }
 
-interface ProviderLoginProp {
-  provider: OAuthProvider;
-  handleSignIn: (provider: OAuthProvider) => void;
-  Icon: React.ElementType;
-  label: string;
-}
-
-const getWebAuthCallback = () => `${getBaseUrl()}/auth/callback`;
+const WEB_AUTH_CALLBACK = `${getBaseUrl()}/auth/callback`;
 const DEEPLINK_CALLBACK = 'readest://auth-callback';
 const USE_APPLE_SIGN_IN = process.env['NEXT_PUBLIC_USE_APPLE_SIGN_IN'] === 'true';
-
-const ProviderLogin: React.FC<ProviderLoginProp> = ({ provider, handleSignIn, Icon, label }) => {
-  return (
-    <button
-      onClick={() => handleSignIn(provider)}
-      className={clsx(
-        'mb-2 flex w-64 items-center justify-center rounded border p-2.5',
-        'bg-base-100 border-base-300 hover:bg-base-200 shadow-sm transition',
-      )}
-    >
-      <Icon />
-      <span className='text-base-content/75 px-2 text-sm'>{label}</span>
-    </button>
-  );
-};
 
 export default function AuthPage() {
   const _ = useTranslation();
   const router = useRouter();
   const { login } = useAuth();
   const { envConfig, appService } = useEnv();
-  const { isDarkMode, safeAreaInsets, isRoundedWindow } = useThemeStore();
+  const { safeAreaInsets, isRoundedWindow } = useThemeStore();
   const { isTrafficLightVisible } = useTrafficLightStore();
   const { settings, setSettings, saveSettings } = useSettingsStore();
   const [port, setPort] = useState<number | null>(null);
   const [isMounted, setIsMounted] = useState(false);
-  const [serverSettingsOpen, setServerSettingsOpen] = useState(false);
   const isOAuthServerRunning = useRef(false);
   const useCustomeOAuth = useRef(false);
 
   const headerRef = useRef<HTMLDivElement>(null);
 
   useTheme({ systemUIVisible: false });
+  // The OAuth return and any deep link land here cold; hydrate before the
+  // Readest Cloud opt-in or handleGoBack's keepLogin write reads the store.
+  const settingsLoaded = useEnsureSettingsLoaded();
 
   const getTauriRedirectTo = (isOAuth: boolean) => {
     // For custom OAuth mode, use a local server to handle the OAuth callback
@@ -90,7 +68,7 @@ export default function AuthPage() {
       (process.env.NODE_ENV === 'production' || appService?.isMobileApp || USE_APPLE_SIGN_IN)
     ) {
       if (appService?.isMobileApp) {
-        return isOAuth ? DEEPLINK_CALLBACK : getWebAuthCallback();
+        return isOAuth ? DEEPLINK_CALLBACK : WEB_AUTH_CALLBACK;
       }
       return DEEPLINK_CALLBACK;
     }
@@ -102,7 +80,7 @@ export default function AuthPage() {
 
   const getWebRedirectTo = () => {
     return process.env.NODE_ENV === 'production'
-      ? getWebAuthCallback()
+      ? WEB_AUTH_CALLBACK
       : `${window.location.origin}/auth/callback`;
   };
 
@@ -135,11 +113,12 @@ export default function AuthPage() {
       throw new Error('No backend connected');
     }
     supabase.auth.signOut();
+    const redirectTo = getTauriRedirectTo(true);
     const { data, error } = await supabase.auth.signInWithOAuth({
       provider,
       options: {
         skipBrowserRedirect: true,
-        redirectTo: getTauriRedirectTo(true),
+        redirectTo,
       },
     });
 
@@ -155,12 +134,32 @@ export default function AuthPage() {
         handleOAuthUrl(res.redirectUrl);
       }
     } else if (appService?.isAndroidApp) {
-      const res = await authWithCustomTab({ authUrl: data.url });
+      const res = await authWithCustomTab({ authUrl: data.url, callbackUrl: redirectTo });
       if (res) {
         handleOAuthUrl(res.redirectUrl);
       }
     } else {
       await openUrl(data.url);
+    }
+  };
+
+  const tauriProviderSignIn = async (provider: OAuthProvider) => {
+    if (provider === 'apple' && (appService?.isIOSApp || USE_APPLE_SIGN_IN)) {
+      return tauriSignInApple();
+    }
+    return tauriSignIn(provider);
+  };
+
+  const webProviderSignIn = async (provider: OAuthProvider) => {
+    if (!supabase) {
+      throw new Error('No backend connected');
+    }
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider,
+      options: { redirectTo: getWebRedirectTo() },
+    });
+    if (error) {
+      console.error('Authentication error:', error);
     }
   };
 
@@ -236,71 +235,28 @@ export default function AuthPage() {
   };
 
   const handleGoBack = () => {
-    // Keep login false to avoid infinite loop to redirect to the login page
-    settings.keepLogin = false;
-    setSettings(settings);
-    saveSettings(envConfig, settings);
+    // Keep login false to avoid infinite loop to redirect to the login page.
+    // On a cold load the store is still an empty object, so read through to
+    // disk first: persisting that would overwrite the real settings file with
+    // a lone `keepLogin`. Building a new object rather than mutating in place
+    // also keeps the settingsStore subscriber's identity check meaningful.
+    void (async () => {
+      try {
+        const appService = await envConfig.getAppService();
+        const current = settingsLoaded ? settings : await appService.loadSettings();
+        const next = { ...current, keepLogin: false };
+        setSettings(next);
+        await saveSettings(envConfig, next);
+      } catch (error) {
+        console.error('Failed to clear keepLogin:', error);
+      }
+    })();
     const redirectTo = new URLSearchParams(window.location.search).get('redirect');
     if (redirectTo) {
       router.push(redirectTo);
     } else {
       router.back();
     }
-  };
-
-  const getAuthLocalization = () => {
-    return {
-      variables: {
-        sign_in: {
-          email_label: _('Email address'),
-          password_label: _('Your Password'),
-          email_input_placeholder: _('Your email address'),
-          password_input_placeholder: _('Your password'),
-          button_label: _('Sign in'),
-          loading_button_label: _('Signing in...'),
-          social_provider_text: _('Sign in with {{provider}}'),
-          link_text: _('Already have an account? Sign in'),
-        },
-        sign_up: {
-          email_label: _('Email address'),
-          password_label: _('Create a Password'),
-          email_input_placeholder: _('Your email address'),
-          password_input_placeholder: _('Your password'),
-          button_label: _('Sign up'),
-          loading_button_label: _('Signing up...'),
-          social_provider_text: _('Sign in with {{provider}}'),
-          link_text: _("Don't have an account? Sign up"),
-          confirmation_text: _('Check your email for the confirmation link'),
-        },
-        magic_link: {
-          email_input_label: _('Email address'),
-          email_input_placeholder: _('Your email address'),
-          button_label: _('Sign in'),
-          loading_button_label: _('Signing in ...'),
-          link_text: _('Send a magic link email'),
-          confirmation_text: _('Check your email for the magic link'),
-        },
-        forgotten_password: {
-          email_label: _('Email address'),
-          password_label: _('Your Password'),
-          email_input_placeholder: _('Your email address'),
-          button_label: _('Send reset password instructions'),
-          loading_button_label: _('Sending reset instructions ...'),
-          link_text: _('Forgot your password?'),
-          confirmation_text: _('Check your email for the password reset link'),
-        },
-        verify_otp: {
-          email_input_label: _('Email address'),
-          email_input_placeholder: _('Your email address'),
-          phone_input_label: _('Phone number'),
-          phone_input_placeholder: _('Your phone number'),
-          token_input_label: _('Token'),
-          token_input_placeholder: _('Your OTP token'),
-          button_label: _('Verify token'),
-          loading_button_label: _('Signing in ...'),
-        },
-      },
-    };
   };
 
   useEffect(() => {
@@ -373,6 +329,7 @@ export default function AuthPage() {
             'fixed z-10 flex w-full items-center justify-between py-2 pe-6 ps-4',
             appService?.hasTrafficLight && 'pt-11',
           )}
+          style={{ top: `${safeAreaInsets?.top || 0}px` }}
         >
           <button
             aria-label={_('Go Back')}
@@ -394,84 +351,39 @@ export default function AuthPage() {
         </div>
         <div
           className={clsx(
-            'z-20 flex flex-col items-center pb-8',
-            appService?.hasTrafficLight ? 'mt-24' : 'mt-12',
+            'z-20 flex w-full flex-col items-center px-6 pb-12',
+            appService?.hasTrafficLight ? 'mt-24' : 'mt-16',
           )}
-          style={{ maxWidth: '420px' }}
         >
-          <ProviderLogin
-            provider='google'
-            handleSignIn={tauriSignIn}
-            Icon={FcGoogle}
-            label={_('Sign in with {{provider}}', { provider: 'Google' })}
-          />
-          <ProviderLogin
-            provider='apple'
-            handleSignIn={
-              appService?.isIOSApp || USE_APPLE_SIGN_IN ? tauriSignInApple : tauriSignIn
-            }
-            Icon={FaApple}
-            label={_('Sign in with {{provider}}', { provider: 'Apple' })}
-          />
-          <ProviderLogin
-            provider='github'
-            handleSignIn={tauriSignIn}
-            Icon={FaGithub}
-            label={_('Sign in with {{provider}}', { provider: 'GitHub' })}
-          />
-          <ProviderLogin
-            provider='discord'
-            handleSignIn={tauriSignIn}
-            Icon={FaDiscord}
-            label={_('Sign in with {{provider}}', { provider: 'Discord' })}
-          />
-          <hr aria-hidden='true' className='border-base-300 my-3 mt-6 w-64 border-t' />
-          <div className='mb-3 w-64'>
-            <button
-              type='button'
-              className='btn btn-ghost btn-sm flex w-full items-center justify-center gap-2'
-              onClick={() => setServerSettingsOpen((open) => !open)}
-              aria-expanded={serverSettingsOpen}
-            >
-              <MdDns />
-              {_('Self-hosted server')}
-            </button>
+          <div className='mb-4 w-full max-w-sm'>
+            <ServerSettingsPanel compact />
           </div>
-          {serverSettingsOpen && (
-            <div className='mb-4 w-full'>
-              <ServerSettingsPanel compact />
-            </div>
-          )}
-          <div className='w-full'>
-            <Auth
-              supabaseClient={supabase}
-              appearance={{ theme: ThemeSupa }}
-              theme={isDarkMode ? 'dark' : 'light'}
-              magicLink={true}
-              providers={[]}
-              redirectTo={getTauriRedirectTo(false)}
-              localization={getAuthLocalization()}
-            />
-          </div>
+          <AuthPanel
+            supabaseClient={supabase}
+            magicLink={true}
+            redirectTo={getTauriRedirectTo(false)}
+            onProviderSignIn={tauriProviderSignIn}
+          />
         </div>
       </div>
     </div>
   ) : (
-    <div style={{ maxWidth: '420px', margin: 'auto', padding: '2rem', paddingTop: '4rem' }}>
+    <div className='bg-base-100 flex min-h-screen flex-col items-center overflow-y-auto px-6 pb-12 pt-20'>
       <button
+        aria-label={_('Go Back')}
         onClick={handleGoBack}
-        className='btn btn-ghost fixed left-6 top-6 h-8 min-h-8 w-8 p-0'
+        className='btn btn-ghost fixed start-6 top-6 h-8 min-h-8 w-8 p-0'
       >
         <IoArrowBack className='text-base-content' />
       </button>
-      <Auth
+      <div className='mb-4 w-full max-w-sm'>
+        <ServerSettingsPanel compact />
+      </div>
+      <AuthPanel
         supabaseClient={supabase}
-        appearance={{ theme: ThemeSupa }}
-        theme={isDarkMode ? 'dark' : 'light'}
         magicLink={true}
-        providers={['google', 'apple', 'github', 'discord']}
         redirectTo={getWebRedirectTo()}
-        localization={getAuthLocalization()}
+        onProviderSignIn={webProviderSignIn}
       />
     </div>
   );

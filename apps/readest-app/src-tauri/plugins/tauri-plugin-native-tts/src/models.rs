@@ -66,6 +66,12 @@ pub struct GetVoicesResponse {
 #[serde(rename_all = "camelCase")]
 pub struct SetMediaSessionActiveRequest {
     pub active: bool,
+    pub session_id: Option<String>,
+    // Android: whether the media service should hold the app's audio focus for
+    // this session. False when the session's audio plays through a WebView
+    // media element, which Chromium already requests focus for (see
+    // MediaPlaybackService.ownsAudioFocus). Defaults to true when absent.
+    pub owns_audio_focus: Option<bool>,
     pub notification_title: Option<String>,
     pub notification_text: Option<String>,
     pub foreground_service_title: Option<String>,
@@ -81,6 +87,7 @@ pub struct SetMediaSessionActiveRequest {
 #[serde(rename_all = "camelCase")]
 pub struct UpdateMediaSessionStateRequest {
     pub playing: bool,
+    pub session_id: Option<String>,
     pub position: Option<f64>,
     pub duration: Option<f64>,
 }
@@ -88,10 +95,17 @@ pub struct UpdateMediaSessionStateRequest {
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct UpdateMediaSessionMetadataRequest {
+    pub session_id: Option<String>,
     pub title: Option<String>,
     pub artist: Option<String>,
     pub album: Option<String>,
     pub artwork: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateMediaLibraryRequest {
+    pub books_json: String,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -122,6 +136,10 @@ pub struct PlayoutEnqueueResponse {
 pub struct PlayoutControlRequest {
     pub action: String,
     pub rate: Option<f64>,
+    // Absolute file path for action "load" (Media Overlay continuous playout).
+    pub path: Option<String>,
+    // Seek target for actions "load" and "seek", in milliseconds.
+    pub position_ms: Option<f64>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]

@@ -55,8 +55,8 @@ interface FileSyncState {
    * durable "last synced" timestamp lives in the provider settings slice.
    */
   lastErrorByKind: Partial<Record<FileSyncBackendKind, string | null>>;
-  /** Once-per-session latch for the mixed-fleet notice (see fleetDetection.ts). */
-  fleetNoticeShown: boolean;
+  reportByKind: Partial<Record<FileSyncBackendKind, string | null>>;
+  dismissReport: (kind: FileSyncBackendKind) => void;
 
   /**
    * Acquire the library-sync mutex for `kind` and mark it syncing. Returns
@@ -78,14 +78,14 @@ interface FileSyncState {
   updateProgress: (kind: FileSyncBackendKind, label: string, detail?: string | null) => void;
   endSync: (kind: FileSyncBackendKind) => void;
   setLastError: (kind: FileSyncBackendKind, message: string | null) => void;
-  setFleetNoticeShown: () => void;
 }
 
 export const useFileSyncStore = create<FileSyncState>((set, get) => ({
   byKind: {},
   activeKind: null,
   lastErrorByKind: {},
-  fleetNoticeShown: false,
+  reportByKind: {},
+  dismissReport: (kind) => set((s) => ({ reportByKind: { ...s.reportByKind, [kind]: null } })),
 
   beginSync: (kind, initialLabel) => {
     // Global mutex: only one backend's library sync at a time, since they all
@@ -147,9 +147,9 @@ export const useFileSyncStore = create<FileSyncState>((set, get) => ({
   setLastError: (kind, message) =>
     set((s) => ({
       lastErrorByKind: { ...s.lastErrorByKind, [kind]: message },
+      // Keep failure details until dismissed, even if a background retry heals health.
+      ...(message ? { reportByKind: { ...s.reportByKind, [kind]: message } } : {}),
     })),
-
-  setFleetNoticeShown: () => set({ fleetNoticeShown: true }),
 }));
 
 /** Per-backend progress, idle when the backend has never started a run. */

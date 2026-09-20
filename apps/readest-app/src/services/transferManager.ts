@@ -6,6 +6,7 @@ import { isReadestCloudStorageActive } from '@/services/sync/cloudSyncProvider';
 import { TranslationFunc } from '@/hooks/useTranslation';
 import { createProgressThrottle, ProgressHandler, ProgressPayload } from '@/utils/transfer';
 import { eventDispatcher } from '@/utils/event';
+import { isAbsOfflineCapable, isAudiobook } from '@/utils/audiobook';
 import { getTransferMessages } from './transferMessages';
 
 const TRANSFER_QUEUE_KEY = 'readest_transfer_queue';
@@ -149,6 +150,9 @@ class TransferManager {
       return null;
     }
 
+    // ABS books stream from the server; there is no local file to upload.
+    if (isAudiobook(book)) return null;
+
     // Readest Cloud storage is not written to while a third-party
     // provider is selected. Before settings hydrate the entry is queued
     // and deferred; the reconcile on hydration decides its fate.
@@ -176,8 +180,36 @@ class TransferManager {
       return null;
     }
 
+    // ABS books stream from the server; there is no cloud file to download.
+    if (isAudiobook(book)) return null;
+
     const store = useTransferStore.getState();
 
+    const existing = store.getTransferByBookHash(book.hash, 'download');
+    if (existing) {
+      return existing.id;
+    }
+
+    const transferId = store.addTransfer(book.hash, book.title, 'download', priority);
+    this.persistQueue();
+    this.processQueue();
+    return transferId;
+  }
+
+  /**
+   * Queue an offline download of an Audiobookshelf book's media (#6256). A
+   * 'book' download row, so the shelf's cover overlay and the Transfer Queue
+   * track it like any book download; executeBookTransfer routes it to the
+   * ABS downloader instead of cloud storage.
+   */
+  queueAbsOfflineDownload(book: Book, priority: number = 10): string | null {
+    if (!this.isReady()) {
+      console.warn('TransferManager not initialized');
+      return null;
+    }
+    if (!isAbsOfflineCapable(book)) return null;
+
+    const store = useTransferStore.getState();
     const existing = store.getTransferByBookHash(book.hash, 'download');
     if (existing) {
       return existing.id;
@@ -232,7 +264,9 @@ class TransferManager {
 
     const id = store.addReplicaTransfer(replicaKind, replicaId, displayTitle, 'upload', {
       priority: opts.priority,
-      isBackground: opts.isBackground,
+      // Replica transfers are background sync by default — see the note on
+      // queueReplicaDownload.
+      isBackground: opts.isBackground ?? true,
       files,
       base,
       reincarnation: opts.reincarnation,
@@ -260,7 +294,12 @@ class TransferManager {
 
     const id = store.addReplicaTransfer(replicaKind, replicaId, displayTitle, 'download', {
       priority: opts.priority,
-      isBackground: opts.isBackground,
+      // Replica bundles (fonts, textures, dictionaries, OPDS catalogs) sync on
+      // their own schedule, not because the user asked for this file right
+      // now. Toasting each one turns a fresh device into a wall of
+      // notifications, so they are background — and therefore silent — unless
+      // a caller explicitly opts into the foreground.
+      isBackground: opts.isBackground ?? true,
       files,
       base,
     });
@@ -286,7 +325,8 @@ class TransferManager {
 
     const id = store.addReplicaTransfer(replicaKind, replicaId, displayTitle, 'delete', {
       priority: opts.priority,
-      isBackground: opts.isBackground,
+      // Background by default — see the note on queueReplicaDownload.
+      isBackground: opts.isBackground ?? true,
       files: filenames.map((logical) => ({ logical, lfp: '', byteSize: 0 })),
     });
     this.persistQueue();
@@ -437,6 +477,8 @@ class TransferManager {
       } else {
         await this.executeBookTransfer(transfer, progressHandler, abortController);
       }
+      // A transfer that cannot stop mid-flight must not report success once cancelled.
+      if (abortController.signal.aborted) return;
 
       // Land the final progress value that the throttle may still be holding.
       progressThrottle.flush();
@@ -483,20 +525,27 @@ class TransferManager {
           this.processQueue();
         }, delay);
       } else {
-        if (errorMessage.includes('Not authenticated')) {
-          eventDispatcher.dispatch('toast', {
-            type: 'error',
-            message: _('Please log in to continue'),
-          });
-        } else if (isQuotaError) {
-          this.recordQuotaFailure();
-        } else {
-          const errorMessages = getTransferMessages(transfer, _).failure;
+        // Background work fails quietly. The success path has always honoured
+        // `isBackground`; the failure path did not, so a broken replica sync
+        // fired one toast per file (issue #5675 — sixteen "Failed to download
+        // file" toasts for sixteen fonts). The failure is still recorded on
+        // the transfer, which is what the Transfer Queue panel reads.
+        if (!transfer.isBackground) {
+          if (errorMessage.includes('Not authenticated')) {
+            eventDispatcher.dispatch('toast', {
+              type: 'error',
+              message: _('Please log in to continue'),
+            });
+          } else if (isQuotaError) {
+            this.recordQuotaFailure();
+          } else {
+            const errorMessages = getTransferMessages(transfer, _).failure;
 
-          eventDispatcher.dispatch('toast', {
-            type: 'error',
-            message: errorMessages[transfer.type],
-          });
+            eventDispatcher.dispatch('toast', {
+              type: 'error',
+              message: errorMessages[transfer.type],
+            });
+          }
         }
 
         useTransferStore.getState().setTransferStatus(transfer.id, 'failed', errorMessage);
@@ -541,7 +590,7 @@ class TransferManager {
   private async executeBookTransfer(
     transfer: TransferItem,
     progressHandler: (p: ProgressPayload) => void,
-    _abortController: AbortController,
+    abortController: AbortController,
   ): Promise<void> {
     const _ = this._!;
     const library = this.getLibrary!();
@@ -549,6 +598,15 @@ class TransferManager {
 
     if (!book) {
       throw new Error(_('Book not found in library'));
+    }
+
+    if (book.format === 'ABS' && transfer.type === 'download') {
+      const { downloadAbsForOffline } = await import('@/services/audiobookshelf/offline');
+      await downloadAbsForOffline(this.appService!, book, progressHandler, abortController.signal);
+      if (abortController.signal.aborted) return;
+      book.absDownloadedAt = Date.now();
+      await this.updateBook!(book);
+      return;
     }
 
     if (transfer.type === 'upload') {
