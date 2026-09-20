@@ -1,3 +1,38 @@
+## 2026-09-10
+
+### Calibre Book staging import
+
+#### Outcome
+
+- Exported and checksum-verified the frozen 290-Book allowlist from the partial
+  Calibre library on `desktop-win`.
+- Parsed every selected file through Readest and imported 211 EPUBs plus 79
+  PDFs into the manual `Calibre Staging` Group.
+- Converted and uploaded all 290 Calibre covers; the full verifier passed for
+  290 book rows, 580 file rows, and 580 MinIO objects.
+
+#### Metadata and clock decisions
+
+- Calibre catalog identifiers replace embedded identifiers because two
+  unrelated EPUBs reused one copied UUID.
+- Obvious inverted and overloaded pipe author values are normalized to one
+  natural-order author per metadata element; subtitles are separated from main
+  titles at the first catalog colon for this staging pass.
+- General `updated_at` stays at the historical Calibre timestamp. Import time
+  advances only upload/metadata clocks, and `last_read_at` is set only for the
+  eight books with explicit Calibre reading dates.
+- No config, note, progress, `stat_books`, or `stat_pages` row is synthesized.
+
+#### Recovery and verification
+
+- The requested simple pre-import PostgreSQL custom-format dump was checksumed
+  and listed successfully with `pg_restore`; it is not a paired MinIO backup.
+- *The Snowball* matched an exact-hash soft-deleted row with no attached state,
+  so apply restored that row instead of duplicating it.
+- A post-import verifier confirmed the target Group, metadata and timestamp
+  values, every file index/object size, and unchanged pre-existing
+  config/note/stat table fingerprints.
+
 ## 2026-08-14
 
 ### Library metadata canonicalization and sync-clock fixes

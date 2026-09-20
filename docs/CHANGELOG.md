@@ -1,3 +1,20 @@
+## 2026-09-10
+
+### Calibre Book staging migration
+
+- Added a read-only Calibre stage exporter, Readest-native EPUB/PDF planner,
+  guarded PostgreSQL/MinIO apply tool, and full verifier for the approved
+  Book-only import.
+- Imported 290 missing books into `Calibre Staging`: 211 EPUBs, 79 PDFs, and
+  290 converted covers; verified all 290 rows and all 580 indexed objects.
+- Normalized title/subtitle and author shapes, assigned a catalog-backed
+  identifier to every record, and rejected a copied UUID shared by two
+  unrelated source EPUBs.
+- Preserved Date Read using historical source clocks and the eight explicit
+  Calibre read dates; created no configs, notes, or reading statistics.
+- Restored one exact-hash soft-deleted book without changing its absent user
+  state, and proved all pre-existing config/note/stat fingerprints unchanged.
+
 ## 2026-08-14
 
 ### Metadata sync correctness
