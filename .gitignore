@@ -73,3 +73,9 @@ apps/readest.koplugin/native/localsend-bin/target/
 
 # scripts/tauri.mjs parks the wry Cargo.lock here during a Linux CEF build
 /Cargo.lock.wry
+
+# Stale local clones from an older packages/ layout. Upstream tracks neither,
+# .gitmodules declares neither, and nothing in the build references them — but
+# they contain a .git, so a bare `git add -A` commits them as gitlinks.
+/packages/tao/
+/packages/tauri-plugins/
