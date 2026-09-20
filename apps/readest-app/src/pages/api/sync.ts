@@ -683,30 +683,58 @@ export async function POST(req: NextRequest) {
     }
 
     if (statPages.length > 0) {
-      // Process in batches so the "longer-duration-wins" merge stays correct at
-      // scale: the existing-row fetch is scoped to each batch's (book_hash,
-      // start_time) keys (not a book's whole history) and bounded under
-      // PostgREST's ~1000-row cap — otherwise existing rows beyond 1000 are
-      // invisible to pickWinningPages and a shorter duration could overwrite a
-      // longer one.
-      const BATCH = 500;
-      for (let off = 0; off < statPages.length; off += BATCH) {
-        const batch = statPages.slice(off, off + BATCH);
-        const bookHashes = [...new Set(batch.map((p) => p.book_hash))];
-        const startTimes = [...new Set(batch.map((p) => p.start_time))];
-        const { data: existing, error: exErr } = await supabase
-          .from('stat_pages')
-          .select('*')
-          .eq('user_id', user.id)
-          .in('book_hash', bookHashes)
-          .in('start_time', startTimes);
-        if (exErr) return NextResponse.json({ error: exErr.message }, { status: 500 });
-        const serverMap = new Map<string, StatPageRecord>();
-        (existing ?? []).forEach((r) =>
-          serverMap.set(pageKey(r as StatPageRecord), r as StatPageRecord),
-        );
-        const { toUpsert } = pickWinningPages(batch, serverMap);
-        const rows = toUpsert.map((p) => ({
+      // Look existing rows up one book at a time, with that book's start_times
+      // in bounded slices. Two separate limits make the obvious shape wrong.
+      //
+      // 1. URI length. PostgREST renders filters into the query string, so
+      //    `.in('book_hash', …).in('start_time', …)` over a whole batch becomes
+      //    a GET URL carrying every hash (32 chars each) and every timestamp.
+      //    A real 464-row push produced ~9KB of query string and the gateway
+      //    answered `URI too long` with HTTP 500. Because `statBooks` is
+      //    upserted just above and commits first, the visible result was
+      //    stat_books advancing while stat_pages never moved — and since the
+      //    client's pushStats only advances its push cursor after a successful
+      //    chunk, the same doomed payload was retried on every book close. One
+      //    device silently lost a month of page timings this way.
+      // 2. Row cap. Those two IN lists also form a hash x start_time cross
+      //    product: 164 hashes and 354 timestamps can match far more than
+      //    PostgREST's ~1000-row ceiling, so existing rows past the cap are
+      //    invisible to pickWinningPages and a shorter duration overwrites a
+      //    longer one.
+      //
+      // Per book, `book_hash.eq.X` plus <= TIMES_PER_QUERY timestamps keeps the
+      // URI near a kilobyte and caps each response at TIMES_PER_QUERY rows, so
+      // both limits hold no matter how large the library or the backlog grows.
+      const TIMES_PER_QUERY = 100;
+      const UPSERT_CHUNK = 500;
+
+      const byBook = new Map<string, StatPageRecord[]>();
+      for (const p of statPages) {
+        const list = byBook.get(p.book_hash);
+        if (list) list.push(p);
+        else byBook.set(p.book_hash, [p]);
+      }
+
+      const serverMap = new Map<string, StatPageRecord>();
+      for (const [bookHash, bookRows] of byBook) {
+        const times = [...new Set(bookRows.map((p) => p.start_time))];
+        for (let off = 0; off < times.length; off += TIMES_PER_QUERY) {
+          const { data: existing, error: exErr } = await supabase
+            .from('stat_pages')
+            .select('*')
+            .eq('user_id', user.id)
+            .eq('book_hash', bookHash)
+            .in('start_time', times.slice(off, off + TIMES_PER_QUERY));
+          if (exErr) return NextResponse.json({ error: exErr.message }, { status: 500 });
+          (existing ?? []).forEach((r) =>
+            serverMap.set(pageKey(r as StatPageRecord), r as StatPageRecord),
+          );
+        }
+      }
+
+      const { toUpsert } = pickWinningPages(statPages, serverMap);
+      for (let off = 0; off < toUpsert.length; off += UPSERT_CHUNK) {
+        const rows = toUpsert.slice(off, off + UPSERT_CHUNK).map((p) => ({
           user_id: user.id,
           book_hash: p.book_hash,
           page: p.page,
