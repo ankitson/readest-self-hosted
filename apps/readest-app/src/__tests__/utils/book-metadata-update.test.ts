@@ -12,7 +12,7 @@ const makeBook = (): Book =>
     author: 'Old Author',
     coverImageUrl: 'old-cover-url',
     updatedAt: 1000,
-  lastReadAt: 900,
+    lastReadAt: 900,
     primaryLanguage: 'en',
     metadata: {
       title: 'Old Title',
