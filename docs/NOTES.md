@@ -1,3 +1,67 @@
+## 2026-10-08
+
+### Calibre Marvin highlight import
+
+#### Outcome
+
+- The 2026-09-10 audit missed Calibre's `mm_annotations` custom column: Marvin
+  had stored 119 quotes across 15 books there. 110 were imported into 15
+  existing Readest books and verified at their stored CFIs; 7 matched existing
+  Apple Books highlights and were skipped; 2 on a different *12 Rules for Life*
+  edition could not be located and were left out.
+- Readest held *Atomic Habits* and *The Body* only as PDFs converted from ebooks
+  (calibre 4.15 and Zamzar), while Marvin had annotated EPUBs. The original
+  EPUBs were imported through the web app; each PDF row's status, status clock,
+  `created_at`, `last_read_at` (the import had set it to the import time),
+  group and tags were copied onto the EPUB row, and the PDF rows were
+  soft-deleted. The PDF objects stay in MinIO; the four rows' prior state is in
+  `tmp/calibre-marvin-highlights/recovery/books-before-pdf-to-epub-*.csv`.
+- Marvin can put `**Page N**` directly after a quote with no blank line; the
+  exporter ends the quote there (only *Atomic Habits* carries page markers).
+- Book-level reviews (before Marvin's first `---`) and *Chasing the Thrill*'s
+  review are not imported; Readest has no book-level review field.
+
+#### Design
+
+- Marvin keeps no CFI, ID, colour or timestamp. The planner hands the Apple Books
+  locator a placeholder CFI, forcing its whole-book selected-text search, which
+  fails closed. Retries strip Marvin's `1.` list markers (the EPUB numbers its
+  `<ol>` with CSS), then fall back to the `>` paragraph alone with the reader's
+  run-on text as the note.
+- Note IDs are `calibre-marvin-<uuid5(calibre id, quote)>`. The apply is
+  insert-only (`ON CONFLICT DO NOTHING`), so a re-run never resurrects or
+  overwrites a highlight deleted or edited on a device. Notes are stamped with
+  the apply time because sync pulls `book_notes` by `updated_at > cursor`.
+- Each target edition is the exact Readest file downloaded from MinIO and checked
+  against its partial MD5, not the Calibre copy.
+
+#### Read status
+
+- Calibre read status disagrees with Readest for 15 books, 12 of them Apple Books
+  imports reading `reading` at the 2025-09-05 migration clock. Calibre carries no
+  status timestamp, so under the newer-Readest-wins rule nothing was changed.
+- Calibre ratings (28 books) have no Readest field and were not imported.
+
+#### Second Calibre library (`organize-resources/reading/calibre_library`)
+
+- A newer 439-book library (last edited 2024-07-08) had 26 records absent from
+  Readest. 21 went to Readest (12 books, Havel's essay, 8 textbooks), 4 papers
+  to Zotero, and an empty `update 1.1.0` record was discarded. Ten PDF records
+  and three book records had no file in the library; their files had been
+  moved to loose copies in `organize-resources/reading/`, which were used.
+- Imported through the web app, then hash-, size- and cover-verified against
+  MinIO. The MOBI got Calibre's `cover.jpg` via the cover-backfill apply path.
+- The web import stamps `last_read_at` with the import time. For these 21 and
+  the two earlier web imports (*Shoe Dog*, *Ask Polly*) it was cleared, and
+  `created_at` set to the Calibre date added; prior rows are in
+  `tmp/calibre-marvin-highlights/recovery/books-before-clock-fix-*.csv`.
+
+#### Recovery
+
+- `tmp/calibre-marvin-highlights/recovery/book_notes-before-*.csv` holds each
+  apply's target books' notes beforehand; every imported row is removable by its
+  `calibre-marvin-` ID prefix.
+
 ## 2026-09-10
 
 ### Calibre Book staging import

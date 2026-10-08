@@ -6,6 +6,7 @@ metadata_cleanup_scripts := "apps/readest-app/scripts/readest-metadata-cleanup"
 cover_backfill_scripts := "apps/readest-app/scripts/readest-cover-backfill"
 calibre_migration_scripts := "apps/readest-app/scripts/calibre-library-migration"
 calibre_migration_root := env_var_or_default("CALIBRE_BOOK_MIGRATION_ROOT", "./tmp/calibre-book-stage-migration")
+calibre_marvin_root := env_var_or_default("CALIBRE_MARVIN_ROOT", "./tmp/calibre-marvin-highlights")
 metadata_cleanup_root := env_var_or_default("READEST_METADATA_CLEANUP_ROOT", "./tmp/readest-metadata-cleanup")
 readest_env := env_var_or_default("READEST_ENV_FILE", "./secrets/readest.secrets.env")
 
@@ -56,6 +57,24 @@ calibre-book-migration-verify:
       --pre-state {{calibre_migration_root}}/pre-import/state.json \
       --env-file {{readest_env}} \
       --output {{calibre_migration_root}}/apply/verification-report.json
+
+# Marvin highlights from Calibre's mm_annotations column, into existing Readest books.
+calibre-marvin-export METADATA_DB:
+    READEST_S3_ACCESS_KEY_ID="$(op read op://clankers/readest-sync/s3-access-key-id)" \
+    READEST_S3_SECRET_ACCESS_KEY="$(op read op://clankers/readest-sync/s3-secret-access-key)" \
+    {{calibre_migration_scripts}}/export_calibre_marvin_highlights.py \
+      --metadata-db {{METADATA_DB}} --output-dir {{calibre_marvin_root}}
+
+calibre-marvin-plan:
+    CALIBRE_MARVIN_STAGE_DIR={{justfile_directory()}}/{{calibre_marvin_root}} \
+    pnpm --filter @readest/readest-app exec vitest run \
+      scripts/calibre-library-migration/calibre-marvin-highlights-plan.test.ts --reporter=verbose
+
+# Dry run (rehearses and rolls back) unless ARGS includes --apply.
+calibre-marvin-apply *ARGS:
+    {{calibre_migration_scripts}}/apply_calibre_marvin_highlights.py \
+      --plan {{calibre_marvin_root}}/plan/marvin-highlights-plan.json \
+      --recovery-dir {{calibre_marvin_root}}/recovery {{ARGS}}
 
 readest-metadata-cleanup-test:
     cd {{metadata_cleanup_scripts}} && uv run python -m unittest -v test_apply_readest_metadata_cleanup.py

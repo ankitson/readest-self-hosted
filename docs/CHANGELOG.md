@@ -1,3 +1,19 @@
+## 2026-10-08
+
+### Calibre Marvin highlight import
+
+- Added `export_calibre_marvin_highlights.py`, `calibre-marvin-highlights-plan.test.ts`
+  and `apply_calibre_marvin_highlights.py` (`just calibre-marvin-export/plan/apply`)
+  to import highlights the Marvin iOS reader stored in Calibre's `mm_annotations`
+  column into books already in Readest.
+- Imported 110 highlights across 15 books; skipped 7 already present from Apple
+  Books and left 2 that could not be located.
+- Replaced the PDF editions of *Atomic Habits* and *The Body* (calibre/Zamzar
+  conversions) with the original EPUBs Marvin had annotated, carrying over
+  status, read date, group and tags, and soft-deleting the PDF rows.
+- Imported 21 books and textbooks from a second, newer Calibre library and
+  cleared import-time `last_read_at` stamps on all web-imported rows.
+
 ## 2026-09-10
 
 ### Calibre Book staging migration
