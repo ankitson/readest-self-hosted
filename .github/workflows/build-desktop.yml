@@ -27,18 +27,37 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # Every build otherwise ships package.json's fixed X.Y.Z-selfhost.1, and
+  # Tauri's updater compares semver -- an equal version means no update is ever
+  # offered. The run number makes each build strictly newer by semver
+  # precedence (selfhost.9 > selfhost.1); the base follows package.json so the
+  # label tracks the upstream release merged in, and an upstream merge only
+  # ever raises it. (It was hard-coded to 0.11.21 until 0.12.12 was merged.)
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      value: ${{ steps.version.outputs.value }}
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          sparse-checkout: apps/readest-app/package.json
+          sparse-checkout-cone-mode: false
+      - id: version
+        run: |
+          set -euo pipefail
+          base=$(node -p "require('./apps/readest-app/package.json').version.split('-')[0]")
+          echo "value=${base}-selfhost.${{ github.run_number }}" >> "$GITHUB_OUTPUT"
+          echo "desktop version: ${base}-selfhost.${{ github.run_number }}"
+
   build:
+    needs: version
     uses: ./.github/workflows/build-selfhost.yml
-    # Every build otherwise ships package.json's fixed 0.11.21-selfhost.1, and
-    # Tauri's updater compares semver -- an equal version means no update is ever
-    # offered. The run number makes each build strictly newer by semver
-    # precedence (selfhost.9 > selfhost.1).
     with:
-      release_version: 0.11.21-selfhost.${{ github.run_number }}
+      release_version: ${{ needs.version.outputs.value }}
     secrets: inherit
 
   publish:
-    needs: build
+    needs: [version, build]
     # Publish whatever built, rather than demanding the whole matrix be green.
     # A skipped job (build-android is gated off in build-selfhost.yml) or one
     # failing platform must not withhold the artifacts that did build. The step
@@ -68,7 +87,7 @@ jobs:
       - name: Generate updater manifest
         env:
           REPO: ${{ github.repository }}
-          VERSION: 0.11.21-selfhost.${{ github.run_number }}
+          VERSION: ${{ needs.version.outputs.value }}
         run: |
           python3 - <<'PY'
           import json, os, pathlib, subprocess

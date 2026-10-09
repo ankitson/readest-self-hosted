@@ -93,6 +93,13 @@ binary, then an unmerged Info.plist that turned into a black screen once tao
 0.37 needed a scene manifest. Delete it once the CLI pipeline has been on
 devices for a release.
 
+Desktop builds (`build-desktop.yml` wrapping `build-selfhost.yml`) are
+versioned `<package.json base>-selfhost.<run>`, so the updater always sees a
+newer semver. The Linux leg copies upstream's `release.yml` Linux steps (CEF
+tauri CLI rev, staged runtime libraries, AppImage content check); when an
+upstream merge changes those steps, carry the change over, or the AppImage
+stops bundling as it did after the 0.12.8 merge.
+
 ### Migrations
 
 **Fork-local migrations use the 9xx range.** `900_local_plan_claim_hook.sql`,

@@ -1,3 +1,13 @@
+## 2026-10-09
+
+### CI
+
+- Linux desktop builds use the CEF runtime recipe from upstream's `release.yml`;
+  they had failed at AppImage bundling since the 0.12.8 merge.
+- Desktop release version follows `package.json` (`0.12.12-selfhost.N`) instead
+  of a hard-coded `0.11.21`.
+- Fork workflows pin Node 24 versions of the GitHub actions.
+
 ## 2026-10-08
 
 ### Calibre Marvin highlight import
