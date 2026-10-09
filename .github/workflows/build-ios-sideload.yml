@@ -71,6 +71,12 @@ jobs:
           SIDELOAD_BUILD_NUMBER: ${{ github.run_number }}
         run: scripts/sideload/build-unsigned-ipa.sh "$RUNNER_TEMP/readest-selfhost.ipa"
 
+      # The build bypasses `tauri ios build`, so check the IPA against the
+      # sources the CLI would have merged before anything is published. A
+      # failure here keeps a broken build out of the SideStore feed.
+      - name: Verify IPA against the Tauri config
+        run: python3 scripts/sideload/verify-ipa.py "$RUNNER_TEMP/readest-selfhost.ipa"
+
       # Read the version off the built app, NOT package.json. package.json carries
       # a prerelease tag (0.11.21-selfhost.1) which iOS strips from
       # CFBundleShortVersionString (-> 0.11.21); advertising the unstripped one

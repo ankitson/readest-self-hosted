@@ -13,11 +13,13 @@ it does need is an app a free personal team is *able* to sign:
     App Group with the host app, so they go with it.
   - A bundle id that will not collide with the App Store build of Readest, in
     case both end up on the same device.
-  - The keys from src-tauri/Info-ios.plist. `tauri ios build` merges that file
-    (tauri.conf.json bundle.iOS.infoPlist) into the generated Info.plist; this
-    bare-xcodebuild pipeline has to do it itself. Most important is the scene
-    manifest: tao 0.37 attaches the main window to a UIWindowScene, and without
-    one the WebView is laid out at 0x0 -- the app launches to a black screen.
+  - The Info.plist keys `tauri ios build` would merge: src-tauri/Info.plist,
+    src-tauri/Info.ios.plist, then tauri.conf.json bundle.iOS.infoPlist, in
+    that order (tauri-cli src/mobile/ios/build.rs). This bare-xcodebuild
+    pipeline has to do it itself. Most important is the scene manifest: tao
+    0.37 attaches the main window to a UIWindowScene, and without one the
+    WebView is laid out at 0x0 -- the app launches to a black screen.
+    verify-ipa.py checks the built IPA against the same sources.
 
 Everything here is a build-time transform of generated files; nothing is written
 back to tracked sources except gen/apple/project.yml, which is itself generated
@@ -29,6 +31,7 @@ Env:
 """
 from __future__ import annotations
 
+import json
 import os
 import pathlib
 import plistlib
@@ -42,7 +45,6 @@ ROOT = pathlib.Path(__file__).resolve().parents[2] / "apps/readest-app/src-tauri
 PROJ = ROOT / "gen/apple/project.yml"
 ENTS = ROOT / "gen/apple/Readest_iOS/Readest_iOS.entitlements"
 INFO = ROOT / "gen/apple/Readest_iOS/Info.plist"
-INFO_OVERLAY = ROOT / "Info-ios.plist"
 
 # The phone scene, declared explicitly as upstream does from #6339 on (same tao
 # 0.37), with single-scene mode so Files on iPad cannot open a second, blank
@@ -69,6 +71,16 @@ EMPTY_ENTITLEMENTS = (
     "<dict/>\n"
     "</plist>\n"
 )
+
+
+def info_sources() -> list[pathlib.Path]:
+    """The plists `tauri ios build` merges into Info.plist, in its order."""
+    sources = [ROOT / "Info.plist", ROOT / "Info.ios.plist"]
+    config = json.loads((ROOT / "tauri.conf.json").read_text())
+    overlay = (config.get("bundle", {}).get("iOS") or {}).get("infoPlist")
+    if overlay:
+        sources.append((ROOT / overlay).resolve())
+    return sources
 
 
 def main() -> None:
@@ -121,16 +133,19 @@ def main() -> None:
         ENTS.write_text(EMPTY_ENTITLEMENTS)
         changes.append("entitlements emptied")
 
-    if INFO.exists() and INFO_OVERLAY.exists():
+    if INFO.exists():
         with INFO.open("rb") as f:
             info = plistlib.load(f)
-        with INFO_OVERLAY.open("rb") as f:
-            overlay = plistlib.load(f)
-        merged = {**info, **overlay, "UIApplicationSceneManifest": SCENE_MANIFEST}
+        merged = dict(info)
+        for source in info_sources():
+            if source.exists():
+                with source.open("rb") as f:
+                    merged.update(plistlib.load(f))
+                changes.append(f"merged {source.name}")
+        merged["UIApplicationSceneManifest"] = SCENE_MANIFEST
         if merged != info:
             with INFO.open("wb") as f:
                 plistlib.dump(merged, f)
-            changes.append(f"merged {len(overlay)} Info-ios.plist keys + phone scene manifest")
 
     print("\n".join(f"  - {c}" for c in changes) if changes else "  (already prepared)")
 

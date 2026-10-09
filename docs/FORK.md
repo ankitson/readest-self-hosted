@@ -76,10 +76,14 @@ All under `.github/workflows/` and `scripts/`.
 
 The iOS build drives `xcodebuild` directly instead of `tauri ios build`, so it
 must reproduce what the CLI would do. `scripts/sideload/prepare-project.py`
-merges `src-tauri/Info-ios.plist` and declares the phone scene; without the
-scene manifest tao 0.37 lays the WebView out at 0x0 (black screen). When
-upstream changes `Info-ios.plist`'s scene manifest, check that script's
-`SCENE_MANIFEST` still matches.
+merges the Info.plist sources the CLI would (`Info.plist`, `Info.ios.plist`,
+`bundle.iOS.infoPlist`) and declares the phone scene; without the scene
+manifest tao 0.37 lays the WebView out at 0x0 (black screen).
+`scripts/sideload/verify-ipa.py` runs in CI before publishing and fails the
+build if the IPA drifts from those sources, so upstream additions are checked
+without anyone having to remember. Its `ALLOWED` and `UNREGISTERED_EXTENSIONS`
+lists are the only sanctioned deviations. The cleaner fix is building with
+`tauri ios build --no-sign` (Tauri CLI 2.11+) and dropping the bypass.
 
 ### Migrations
 
