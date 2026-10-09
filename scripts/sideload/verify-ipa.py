@@ -40,11 +40,12 @@ from importlib import import_module  # noqa: E402
 
 prepare = import_module("prepare-project")
 
-# Info.plist keys whose built value legitimately differs from the merged
-# sources. Anything not listed here must match exactly.
+# Info.plist keys whose built value may legitimately differ from the merged
+# sources: the source value or the one listed here is accepted. Anything not
+# listed must match exactly.
 ALLOWED = {
-    # prepare-project.py declares the phone scene explicitly and drops the
-    # CarPlay role, whose entitlement a free personal team cannot sign.
+    # The bypass pipeline (prepare-project.py) declares only the phone scene;
+    # `tauri ios build` merges upstream's, which adds an inert CarPlay role.
     "UIApplicationSceneManifest": prepare.SCENE_MANIFEST,
 }
 
@@ -107,11 +108,14 @@ def main() -> int:
         has_extensions = (app / "PlugIns").exists() and any((app / "PlugIns").iterdir())
 
     for key, value in expected_info().items():
-        want = ALLOWED.get(key, value)
         if key not in info:
             failures.append(f"Info.plist is missing {key}")
-        elif info[key] != want:
-            failures.append(f"Info.plist {key} differs from its source")
+        elif info[key] != value and (key not in ALLOWED or info[key] != ALLOWED[key]):
+            failures.append(
+                f"Info.plist {key} differs from its source:\n"
+                f"      built:  {json.dumps(info[key], default=str)[:600]}\n"
+                f"      source: {json.dumps(value, default=str)[:600]}"
+            )
 
     openable = openable_extensions(info)
     for association in config.get("bundle", {}).get("fileAssociations") or []:
