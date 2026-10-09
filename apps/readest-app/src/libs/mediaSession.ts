@@ -41,6 +41,8 @@ export interface MediaSessionState {
   bookAuthor?: string;
 }
 
+const DESKTOP_PLATFORMS = ['macos', 'windows', 'linux'];
+
 interface Permissions {
   postNotification: PermissionState;
 }
@@ -225,23 +227,28 @@ export class TauriMediaSession {
         console.error('Failed to set media session active state:', error);
       }
       if (this.sessionId !== sessionId) return;
+      // Register transport listeners before optional notification permission
+      // work. Cold playback can already be audible when the Activity opens,
+      // and a driver's first Pause must not disappear during this setup gap.
+      try {
+        await this.initializeListeners(sessionId);
+      } catch (error) {
+        console.warn('Media session listener init failed:', error);
+      }
+      if (this.sessionId !== sessionId) return;
       // The foreground-service media notification IS the lock-screen control;
       // on Android 13+ it is silently suppressed unless POST_NOTIFICATIONS is
       // granted. Request it on every activation (no-op once decided).
       // Best-effort: it must never block or abort the foreground-service start
       // below, so it gets its own catch.
       try {
-        await this.requestPostNotificationPermission();
+        if (!DESKTOP_PLATFORMS.includes(getOSPlatform())) {
+          await this.requestPostNotificationPermission();
+        }
       } catch (error) {
         console.warn('POST_NOTIFICATIONS request failed:', error);
       }
       if (this.sessionId !== sessionId) return;
-      // Listener registration is optional and may stall or fail independently.
-      try {
-        await this.initializeListeners(sessionId);
-      } catch (error) {
-        console.warn('Media session listener init failed:', error);
-      }
       return;
     }
 
@@ -411,6 +418,14 @@ export function getMediaSession() {
     if ('mediaSession' in navigator) {
       return new IOSCompositeMediaSession(navigator.mediaSession);
     }
+    return new TauriMediaSession();
+  }
+  // Desktop: the OS media controls (macOS Now Playing, Windows SMTC, Linux
+  // MPRIS) via the plugin. The webviews can't carry media keys themselves:
+  // WKWebView never becomes the macOS Now Playing app, and WebView2 routes
+  // keys only while a media element plays, reading it as playing even while
+  // TTS is paused (#6433).
+  if (isTauriAppPlatform()) {
     return new TauriMediaSession();
   }
   // Web: navigator.mediaSession, driven by whatever media element plays.

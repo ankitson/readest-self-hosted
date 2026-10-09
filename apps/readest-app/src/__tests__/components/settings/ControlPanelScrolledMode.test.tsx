@@ -80,7 +80,10 @@ vi.mock('@/components/settings/PageTurnerSettings', () => ({
 }));
 
 vi.mock('@/utils/style', () => ({ getStyles: () => '' }));
-vi.mock('@/utils/config', () => ({ getMaxInlineSize: () => 720 }));
+vi.mock('@/utils/config', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/utils/config')>()),
+  getMaxInlineSize: () => 720,
+}));
 
 const applyPageTurnAttributes = vi.fn();
 vi.mock('@/app/reader/hooks/useCapturedTurn', () => ({
@@ -137,6 +140,19 @@ describe('Settings > Behavior > Scroll', () => {
     render(<ControlPanel bookKey='test' onRegisterReset={() => {}} />);
 
     expect(scrolledModeSwitch()?.disabled).toBe(false);
+  });
+
+  // Reflowable scrolled turns snap to whole lines, which overrides any overlap,
+  // so the setting only exists for fixed-layout books.
+  it('shows Overlap Pixels only for a fixed-layout book', () => {
+    currentIsFixedLayout = true;
+    render(<ControlPanel bookKey='test' onRegisterReset={() => {}} />);
+    expect(screen.queryByText('Overlap Pixels')).not.toBeNull();
+    cleanup();
+
+    currentIsFixedLayout = false;
+    render(<ControlPanel bookKey='test' onRegisterReset={() => {}} />);
+    expect(screen.queryByText('Overlap Pixels')).toBeNull();
   });
 });
 

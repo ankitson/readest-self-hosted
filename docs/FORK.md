@@ -35,13 +35,20 @@ Regenerate the file list with `just fork-delta`.
 
 ### Reading-recency clock (`last_read_at`)
 
-Upstream has no equivalent. `updated_at` is a general row clock that status
-edits, metadata edits and sync all advance, so it is not last-read.
+Upstream has no equivalent column. Since #6470 (merged 2026-10-08) upstream
+treats `updated_at` as its Date Read key and stops grouping, tagging and
+metadata edits from bumping it, which covers most of what this clock was for.
+It still does not separate imports or server-side scripts from reading, which
+our migration tools rely on, so we kept ours. Revisit at the next merge: if
+nothing on the server writes books outside the app any more, dropping this is
+the cheaper path.
 
 `docker/volumes/db/init/schema.sql`, `docker/volumes/db/migrations/901_add_last_read_at.sql`,
 `types/book.ts`, `types/records.ts`, `utils/transform.ts`,
 `services/sync/file/merge.ts`, `app/library/utils/libraryUtils.ts`
-(`getBookDateReadAt`), `store/bookDataStore.ts`, `store/libraryStore.ts`.
+(`getBookDateReadAt`), `services/bookshelves/presentation.ts`
+(`generateBookshelfItems`, moved there from `BookshelfItem.tsx` upstream),
+`store/bookDataStore.ts`, `store/libraryStore.ts`.
 
 If upstream ever adds its own reading-recency column, drop all of this and take
 theirs.
@@ -66,6 +73,13 @@ merge eats them.
 Unsigned-IPA iOS build, desktop auto-update, Docker image with build
 provenance, Vercel-deploy skip when secrets are absent, Android job disabled.
 All under `.github/workflows/` and `scripts/`.
+
+The iOS build drives `xcodebuild` directly instead of `tauri ios build`, so it
+must reproduce what the CLI would do. `scripts/sideload/prepare-project.py`
+merges `src-tauri/Info-ios.plist` and declares the phone scene; without the
+scene manifest tao 0.37 lays the WebView out at 0x0 (black screen). When
+upstream changes `Info-ios.plist`'s scene manifest, check that script's
+`SCENE_MANIFEST` still matches.
 
 ### Migrations
 

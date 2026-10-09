@@ -1,5 +1,5 @@
 import clsx from 'clsx';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { MdCheckCircle, MdCheckCircleOutline, MdOutlineOfflinePin } from 'react-icons/md';
 import {
   LiaCloudUploadAltSolid,
@@ -23,6 +23,7 @@ import { isAudiobook } from '@/utils/audiobook';
 import { formatAuthors, formatDescription, formatSeries } from '@/utils/book';
 import { splitDuration } from '@/utils/time';
 import { INDETERMINATE_PROGRESS } from '@/utils/transfer';
+import { getBookTags } from '../utils/libraryUtils';
 import ReadingProgress from './ReadingProgress';
 import BookCover from '@/components/BookCover';
 
@@ -30,6 +31,7 @@ interface BookItemProps {
   book: Book;
   mode: LibraryViewModeType;
   coverFit: LibraryCoverFitType;
+  skeuomorphicCovers?: boolean;
   isSelectMode: boolean;
   bookSelected: boolean;
   transferProgress: number | null;
@@ -37,12 +39,15 @@ interface BookItemProps {
   handleBookDownload: (book: Book, options?: { redownload?: boolean; queued?: boolean }) => void;
   showBookDetailsModal: (book: Book) => void;
   showTimeRemaining: boolean;
+  /** Badged on the cover inside a series group, where the breadcrumb names the series. */
+  seriesIndex?: number;
 }
 
 const BookItem: React.FC<BookItemProps> = ({
   book,
   mode,
   coverFit,
+  skeuomorphicCovers,
   isSelectMode,
   bookSelected,
   transferProgress,
@@ -50,18 +55,27 @@ const BookItem: React.FC<BookItemProps> = ({
   handleBookDownload,
   showBookDetailsModal,
   showTimeRemaining,
+  seriesIndex,
 }) => {
   const _ = useTranslation();
   const router = useRouter();
   const { user } = useAuth();
   const { appService } = useEnv();
   const { settings } = useSettingsStore();
+  const showSpine = skeuomorphicCovers ?? settings.librarySkeuomorphicCovers;
   const iconSize15 = useResponsiveSize(15);
 
+  // Reset during render, not in an effect: a cached cover reports its size
+  // before a mount effect runs, and the effect would then drop it, leaving the
+  // fit cover in a full-height cell with the spine and selection wash spilling
+  // past the image (a carousel remounts covers as they scroll back into view).
   const [coverAspect, setCoverAspect] = useState<number | null>(null);
-  useEffect(() => {
+  const coverKey = `${book.hash}|${book.metadata?.coverImageUrl}|${book.coverImageUrl}`;
+  const [prevCoverKey, setPrevCoverKey] = useState(coverKey);
+  if (coverKey !== prevCoverKey) {
+    setPrevCoverKey(coverKey);
     setCoverAspect(null);
-  }, [book.hash, book.metadata?.coverImageUrl, book.coverImageUrl]);
+  }
 
   const CELL_ASPECT_RATIO = 28 / 41;
   const fitCoverInGrid = mode === 'grid' && coverFit === 'fit' && coverAspect !== null;
@@ -74,6 +88,8 @@ const BookItem: React.FC<BookItemProps> = ({
     : undefined;
 
   const seriesText = formatSeries(book.metadata?.series, book.metadata?.seriesIndex);
+  // Synced rows may carry untrimmed or duplicate tags; show each tag once.
+  const tags = getBookTags(book);
 
   // One condition drives both the cover overlay and the hiding of the row's
   // transfer buttons, so the cover can never end up showing neither. The
@@ -134,11 +150,8 @@ const BookItem: React.FC<BookItemProps> = ({
           mode={mode}
           book={book}
           coverFit={coverFit}
-          showSpine={settings.librarySkeuomorphicCovers}
-          imageClassName={clsx(
-            'shadow-md',
-            settings.librarySkeuomorphicCovers ? 'rounded-none' : 'rounded-sm',
-          )}
+          showSpine={showSpine}
+          imageClassName={clsx('shadow-md', showSpine ? 'rounded-none' : 'rounded-sm')}
           onAspectRatioChange={setCoverAspect}
         />
         {isTransferring && (
@@ -161,6 +174,11 @@ const BookItem: React.FC<BookItemProps> = ({
               </span>
             )}
           </div>
+        )}
+        {seriesIndex !== undefined && (
+          <span className='eink-bordered bg-base-100/90 text-base-content absolute end-1 top-1 rounded-sm px-1 text-[10px] font-semibold leading-4 shadow-sm'>
+            #{seriesIndex}
+          </span>
         )}
         {bookSelected && (
           <div className='absolute inset-0 bg-black opacity-30 transition-opacity duration-300'></div>
@@ -216,7 +234,7 @@ const BookItem: React.FC<BookItemProps> = ({
             minHeight: `${iconSize15}px`,
           }}
         >
-          {isAbsBook ? (
+          {isAbsBook && book.readingStatus !== 'finished' ? (
             <div
               className='text-neutral-content/70 flex min-w-0 justify-between text-xs'
               role='status'
@@ -229,6 +247,32 @@ const BookItem: React.FC<BookItemProps> = ({
             (book.progress || book.readingStatus) && (
               <ReadingProgress book={book} showTimeRemaining={showTimeRemaining} />
             )
+          )}
+          {mode === 'list' && tags.length > 0 && (
+            // The tags only take the space left between the progress and the
+            // icons, and clip (fading out) when it runs out. `w-0` zeroes their
+            // min-content contribution, else a long tag list widens the whole
+            // text column and pushes the icons out of the row.
+            <div
+              aria-label={_('Tags')}
+              className={clsx(
+                'me-2 flex w-0 min-w-0 flex-1 items-center gap-1.5 overflow-hidden',
+                // Space from the progress only when it shows something.
+                '[:not(:empty)+&]:ms-1.5',
+                '[mask-image:linear-gradient(to_right,black_calc(100%-12px),transparent)]',
+                'rtl:[mask-image:linear-gradient(to_left,black_calc(100%-12px),transparent)]',
+                'eink:[mask-image:none]',
+              )}
+            >
+              {tags.map((tag) => (
+                <span
+                  key={tag}
+                  className='eink-bordered text-neutral-content/70 border-base-content/15 inline-flex h-3.5 shrink-0 items-center whitespace-nowrap rounded-sm border px-1 text-[10px] leading-none'
+                >
+                  {tag}
+                </span>
+              ))}
+            </div>
           )}
           <div className='flex shrink-0 items-center justify-center gap-x-2'>
             {!appService?.isMobile && (

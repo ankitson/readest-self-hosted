@@ -48,7 +48,7 @@ describe('getBookWithUpdatedMetadata', () => {
     expect(book.metadata?.coverImageUrl).toBe('old-cover-url');
   });
 
-  it('applies metadata with its own clock without changing Date Read', () => {
+  it('applies metadata on its own clock without changing Date Read', () => {
     const book = makeBook();
     const editedMeta: BookMetadata = {
       title: 'New Title',
@@ -63,11 +63,10 @@ describe('getBookWithUpdatedMetadata', () => {
     expect(updated.title).toBe('New Title');
     expect(updated.author).toBe('New Author');
     expect(updated.primaryLanguage).toBe('fr');
-    // The metadata group carries its own clock, and upstream advances the row
-    // clock too so the edit propagates. What this fork guarantees is narrower
-    // and is the point of the separate Date Read clock: a metadata edit must
-    // not register as reading.
     expect(updated.metadataUpdatedAt).toBeGreaterThan(book.updatedAt);
+    // updatedAt is the Date Read sort key; editing metadata is not reading (#6414).
+    expect(updated.updatedAt).toBe(book.updatedAt);
+    // Fork-local: nor does it touch the dedicated reading clock.
     expect(updated.lastReadAt).toBe(book.lastReadAt);
   });
 
