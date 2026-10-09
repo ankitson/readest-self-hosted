@@ -74,16 +74,24 @@ Unsigned-IPA iOS build, desktop auto-update, Docker image with build
 provenance, Vercel-deploy skip when secrets are absent, Android job disabled.
 All under `.github/workflows/` and `scripts/`.
 
-The iOS build drives `xcodebuild` directly instead of `tauri ios build`, so it
-must reproduce what the CLI would do. `scripts/sideload/prepare-project.py`
-merges the Info.plist sources the CLI would (`Info.plist`, `Info.ios.plist`,
-`bundle.iOS.infoPlist`) and declares the phone scene; without the scene
-manifest tao 0.37 lays the WebView out at 0x0 (black screen).
+The iOS build runs `tauri ios build --no-sign` (since 2026-10-09).
+`scripts/sideload/prepare-project.py` first strips what a free personal team
+cannot sign (app extensions, entitlements); the CLI then does the frontend
+build, the Info.plist merge, cargo and the archive. The sideload bundle id is
+stamped onto the built Info.plist afterwards, because the config identifier
+also names the app's data directory and must not change.
+
 `scripts/sideload/verify-ipa.py` runs in CI before publishing and fails the
-build if the IPA drifts from those sources, so upstream additions are checked
-without anyone having to remember. Its `ALLOWED` and `UNREGISTERED_EXTENSIONS`
-lists are the only sanctioned deviations. The cleaner fix is building with
-`tauri ios build --no-sign` (Tauri CLI 2.11+) and dropping the bypass.
+build if the IPA drifts from the Tauri config's plist sources, so upstream
+additions are checked without anyone having to remember. Its `ALLOWED` and
+`UNREGISTERED_EXTENSIONS` lists are the only sanctioned deviations.
+
+The old path that drove cargo and `xcodebuild` by hand stays selectable
+(`SIDELOAD_PIPELINE=bypass`) as a fallback for one release. It had to
+reproduce every CLI step and twice shipped builds that missed one: a dev-mode
+binary, then an unmerged Info.plist that turned into a black screen once tao
+0.37 needed a scene manifest. Delete it once the CLI pipeline has been on
+devices for a release.
 
 ### Migrations
 

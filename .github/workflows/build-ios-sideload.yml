@@ -19,10 +19,10 @@ on:
         type: boolean
         default: true
       pipeline:
-        description: "bypass = cargo + xcodebuild by hand; tauri = `tauri ios build --no-sign`"
+        description: "tauri = `tauri ios build --no-sign` (default); bypass = the old cargo + xcodebuild fallback"
         type: choice
-        options: [bypass, tauri]
-        default: bypass
+        options: [tauri, bypass]
+        default: tauri
   push:
     branches: [main]
     paths:
@@ -95,7 +95,7 @@ jobs:
           # Makes CFBundleVersion unique per run so SideStore can tell builds
           # apart; it compares version/buildVersion, never dates.
           SIDELOAD_BUILD_NUMBER: ${{ github.run_number }}
-          SIDELOAD_PIPELINE: ${{ inputs.pipeline || 'bypass' }}
+          SIDELOAD_PIPELINE: ${{ inputs.pipeline || 'tauri' }}
         run: scripts/sideload/build-unsigned-ipa.sh "$RUNNER_TEMP/readest-selfhost.ipa"
 
       # Read the version off the built app, NOT package.json. package.json carries

@@ -21,11 +21,14 @@ APP="$REPO/apps/readest-app"
 OUT="${1:-$REPO/dist/readest-selfhost-unsigned.ipa}"
 RUST_TARGET="${RUST_TARGET:-aarch64-apple-ios}"
 DERIVED="${DERIVED_DATA:-$APP/src-tauri/gen/apple/build}"
-# bypass: compile the Rust staticlib and drive xcodebuild by hand (below).
-# tauri:  let `tauri ios build --no-sign` (Tauri CLI 2.11+) do both, so nothing
-#         the CLI does has to be reproduced here. Being trialled; see
-#         verify-ipa.py for why the bypass keeps missing steps.
-PIPELINE="${SIDELOAD_PIPELINE:-bypass}"
+# tauri (default): `tauri ios build --no-sign` (Tauri CLI 2.11+) runs the
+#         frontend build, cargo and xcodebuild archive, so nothing the CLI does
+#         has to be reproduced here. Archiving also strips the binary (~40 MB).
+# bypass: the old path -- compile the Rust staticlib and drive xcodebuild by
+#         hand. Kept one release as a fallback; it twice shipped builds missing
+#         a step the CLI performs (see verify-ipa.py). Delete once tauri has
+#         been on devices for a release.
+PIPELINE="${SIDELOAD_PIPELINE:-tauri}"
 BUNDLE_ID="${SIDELOAD_BUNDLE_ID:-com.readest.selfhost.sideload}"
 
 # arm64 is the only shipping iOS arch; the project still carries an x86_64 slot
