@@ -110,8 +110,13 @@ export PLATFORM_NAME="${PLATFORM_NAME:-iphoneos}"
 # `tauri build` passes it automatically; a bare `cargo build` must not forget it.
 # The app crate declares no custom-protocol feature of its own, so enable it on
 # the tauri dependency directly.
+#
+# `devtools` makes the WKWebView inspectable from Safari's Develop menu on a Mac
+# the device is plugged into. A personal sideload build has nothing to hide, and
+# without it a JS failure at startup is a black screen with nothing in the
+# device log.
 ( cd src-tauri && cargo build --lib --release --target "$RUST_TARGET" \
-    --features tauri/custom-protocol )
+    --features tauri/custom-protocol,devtools )
 
 # This is a cargo workspace rooted at the repo, so the target dir is NOT
 # src-tauri/target -- ask cargo rather than assuming.
