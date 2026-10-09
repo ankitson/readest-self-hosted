@@ -144,8 +144,12 @@ jobs:
             # `gh release edit` does not move the underlying tag, so a rolling
             # release keeps pointing at whatever commit first created it. Move it
             # explicitly, or the release page credits a stale commit.
+            # Cosmetic, so never fatal: GITHUB_TOKEN may not move a ref onto a
+            # commit whose history changes workflow files (HTTP 403), which
+            # every upstream merge brings in.
             gh api --method PATCH "repos/$GITHUB_REPOSITORY/git/refs/tags/$tag" \
-              -f sha="$GITHUB_SHA" -F force=true >/dev/null
+              -f sha="$GITHUB_SHA" -F force=true >/dev/null \
+              || echo "::warning::could not move tag $tag to $GITHUB_SHA; the release page credits an older commit"
           else
             gh release create "$tag" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
               --title "$title" --notes "$notes" --latest=false
