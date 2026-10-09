@@ -30,12 +30,26 @@ concurrency:
 
 jobs:
   build:
-    runs-on: macos-15
+    # Upstream builds iOS with the iOS 26 SDK (e.g. UIView.cornerConfiguration
+    # in the native bridge), which macos-15's default Xcode 16.4 lacks.
+    runs-on: macos-26
     timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
+
+      - name: Select the newest stable Xcode
+        run: |
+          ls -d /Applications/Xcode*.app
+          xcode="$(ls -d /Applications/Xcode_*.app | grep -iv beta | sort -V | tail -1)"
+          sudo xcode-select -s "$xcode/Contents/Developer"
+          xcodebuild -version
+          major="$(xcodebuild -version | awk 'NR==1{split($2,v,"."); print v[1]}')"
+          if [ "$major" -lt 26 ]; then
+            echo "::error::need Xcode 26+ for the iOS 26 SDK, got $(xcodebuild -version | head -1)"
+            exit 1
+          fi
 
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
