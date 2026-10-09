@@ -13,6 +13,11 @@ it does need is an app a free personal team is *able* to sign:
     App Group with the host app, so they go with it.
   - A bundle id that will not collide with the App Store build of Readest, in
     case both end up on the same device.
+  - The keys from src-tauri/Info-ios.plist. `tauri ios build` merges that file
+    (tauri.conf.json bundle.iOS.infoPlist) into the generated Info.plist; this
+    bare-xcodebuild pipeline has to do it itself. Most important is the scene
+    manifest: tao 0.37 attaches the main window to a UIWindowScene, and without
+    one the WebView is laid out at 0x0 -- the app launches to a black screen.
 
 Everything here is a build-time transform of generated files; nothing is written
 back to tracked sources except gen/apple/project.yml, which is itself generated
@@ -26,6 +31,7 @@ from __future__ import annotations
 
 import os
 import pathlib
+import plistlib
 import re
 import sys
 
@@ -35,6 +41,24 @@ PRODUCT = os.environ.get("SIDELOAD_PRODUCT_NAME", "Readest Selfhost")
 ROOT = pathlib.Path(__file__).resolve().parents[2] / "apps/readest-app/src-tauri"
 PROJ = ROOT / "gen/apple/project.yml"
 ENTS = ROOT / "gen/apple/Readest_iOS/Readest_iOS.entitlements"
+INFO = ROOT / "gen/apple/Readest_iOS/Info.plist"
+INFO_OVERLAY = ROOT / "Info-ios.plist"
+
+# The phone scene, declared explicitly as upstream does from #6339 on (same tao
+# 0.37), with single-scene mode so Files on iPad cannot open a second, blank
+# scene. The CarPlay role is left out: its entitlement is stripped above.
+SCENE_MANIFEST = {
+    "UIApplicationSupportsMultipleScenes": False,
+    "UISceneConfigurations": {
+        "UIWindowSceneSessionRoleApplication": [
+            {
+                "UISceneClassName": "UIWindowScene",
+                "UISceneConfigurationName": "Default",
+                "UISceneDelegateClassName": "TaoSceneDelegate",
+            }
+        ]
+    },
+}
 
 EMPTY_ENTITLEMENTS = (
     '<?xml version="1.0" encoding="UTF-8"?>\n'
@@ -96,6 +120,17 @@ def main() -> None:
     if ENTS.exists() and ENTS.read_text() != EMPTY_ENTITLEMENTS:
         ENTS.write_text(EMPTY_ENTITLEMENTS)
         changes.append("entitlements emptied")
+
+    if INFO.exists() and INFO_OVERLAY.exists():
+        with INFO.open("rb") as f:
+            info = plistlib.load(f)
+        with INFO_OVERLAY.open("rb") as f:
+            overlay = plistlib.load(f)
+        merged = {**info, **overlay, "UIApplicationSceneManifest": SCENE_MANIFEST}
+        if merged != info:
+            with INFO.open("wb") as f:
+                plistlib.dump(merged, f)
+            changes.append(f"merged {len(overlay)} Info-ios.plist keys + phone scene manifest")
 
     print("\n".join(f"  - {c}" for c in changes) if changes else "  (already prepared)")
 
