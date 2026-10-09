@@ -13,6 +13,16 @@ name: Build iOS sideload IPA
 
 on:
   workflow_dispatch:
+    inputs:
+      publish:
+        description: Publish a release (the SideStore feed follows the newest one). Off for test builds.
+        type: boolean
+        default: true
+      pipeline:
+        description: "bypass = cargo + xcodebuild by hand; tauri = `tauri ios build --no-sign`"
+        type: choice
+        options: [bypass, tauri]
+        default: bypass
   push:
     branches: [main]
     paths:
@@ -24,8 +34,10 @@ on:
 permissions:
   contents: write   # create the release that SideStore's source feed points at
 
+# Publishing runs share one group so a newer push supersedes an older one. A
+# test run (publish off) gets its own group and must never cancel a release.
 concurrency:
-  group: ios-sideload
+  group: ${{ (github.event_name == 'workflow_dispatch' && !inputs.publish) && format('ios-sideload-test-{0}', github.run_id) || 'ios-sideload' }}
   cancel-in-progress: true
 
 jobs:
@@ -83,6 +95,7 @@ jobs:
           # Makes CFBundleVersion unique per run so SideStore can tell builds
           # apart; it compares version/buildVersion, never dates.
           SIDELOAD_BUILD_NUMBER: ${{ github.run_number }}
+          SIDELOAD_PIPELINE: ${{ inputs.pipeline || 'bypass' }}
         run: scripts/sideload/build-unsigned-ipa.sh "$RUNNER_TEMP/readest-selfhost.ipa"
 
       # Read the version off the built app, NOT package.json. package.json carries
@@ -118,6 +131,7 @@ jobs:
       # path is a permanent redirect to whichever release is newest -- so the
       # subscribed URL never changes and no separate hosting is needed.
       - name: Generate SideStore source feed
+        if: github.event_name != 'workflow_dispatch' || inputs.publish
         env:
           REPO_URL: ${{ github.server_url }}/${{ github.repository }}
           VERSION: ${{ steps.v.outputs.version }}
@@ -187,6 +201,7 @@ jobs:
       # advertises. The IPA carries no secrets: the server URL is entered by the
       # user at runtime and discovered via /.well-known, never baked in.
       - name: Publish release
+        if: github.event_name != 'workflow_dispatch' || inputs.publish
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -207,6 +222,7 @@ jobs:
           Point the app at your own Readest instance on first launch."
 
       - name: Prune old sideload releases
+        if: github.event_name != 'workflow_dispatch' || inputs.publish
         env:
           GH_TOKEN: ${{ github.token }}
         run: |

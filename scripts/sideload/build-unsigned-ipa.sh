@@ -21,6 +21,12 @@ APP="$REPO/apps/readest-app"
 OUT="${1:-$REPO/dist/readest-selfhost-unsigned.ipa}"
 RUST_TARGET="${RUST_TARGET:-aarch64-apple-ios}"
 DERIVED="${DERIVED_DATA:-$APP/src-tauri/gen/apple/build}"
+# bypass: compile the Rust staticlib and drive xcodebuild by hand (below).
+# tauri:  let `tauri ios build --no-sign` (Tauri CLI 2.11+) do both, so nothing
+#         the CLI does has to be reproduced here. Being trialled; see
+#         verify-ipa.py for why the bypass keeps missing steps.
+PIPELINE="${SIDELOAD_PIPELINE:-bypass}"
+BUNDLE_ID="${SIDELOAD_BUNDLE_ID:-com.readest.selfhost.sideload}"
 
 # arm64 is the only shipping iOS arch; the project still carries an x86_64 slot
 # for the simulator, which a sideload build never needs.
@@ -55,7 +61,11 @@ NODE
 fi
 
 echo "==> [3/7] frontend production build"
-pnpm build
+if [ "$PIPELINE" = tauri ]; then
+  echo "    skipped: tauri ios build runs beforeBuildCommand itself"
+else
+  pnpm build
+fi
 
 echo "==> [4/7] scaffold generated iOS project files"
 # src-tauri/gen is gitignored apart from a few force-added files, so a fresh
@@ -92,6 +102,24 @@ echo "==> [5/7] strip un-provisionable capabilities, set sideload identity"
 python3 "$REPO/scripts/sideload/prepare-project.py"
 ( cd src-tauri/gen/apple && xcodegen generate >/dev/null && echo "    Xcode project regenerated" )
 
+if [ "$PIPELINE" = tauri ]; then
+  echo "==> [6/7] tauri ios build --no-sign"
+  # The config identifier stays com.readest.selfhost: it also names the app's
+  # data directory, so changing it would strand an installed library. The CLI
+  # writes it into PRODUCT_BUNDLE_IDENTIFIER; the sideload bundle id is
+  # stamped onto the built Info.plist below instead.
+  marker="$(mktemp)"
+  pnpm tauri ios build --no-sign --ci --target aarch64 --features devtools
+  ipa_built="$(find src-tauri/gen/apple/build -name '*.ipa' -newer "$marker" | head -1)"
+  rm -f "$marker"
+  test -n "$ipa_built" || { echo "tauri ios build produced no IPA"; exit 1; }
+  echo "==> [7/7] unpack $(basename "$ipa_built") for stamping"
+  unpacked="$(mktemp -d)"
+  ( cd "$unpacked" && unzip -q "$APP/$ipa_built" )
+  app="$(ls -d "$unpacked/Payload/"*.app | head -1)"
+  plutil -replace CFBundleIdentifier -string "$BUNDLE_ID" "$app/Info.plist"
+  echo "    bundle id -> $BUNDLE_ID"
+else
 echo "==> [6/7] compile Rust staticlib ($RUST_TARGET)"
 # Several plugins (turso, native-tts, log) use swift-rs, which compiles Swift in
 # a build script and picks its SDK from the environment. Under tauri the cargo
@@ -139,6 +167,7 @@ xcodebuild -project Readest.xcodeproj -scheme Readest_iOS \
   build
 
 app="$(ls -d "$DERIVED/Build/Products/release-iphoneos/"*.app | head -1)"
+fi
 
 # Give every build a distinct CFBundleVersion. Both the marketing version and the
 # build number are derived from package.json, so consecutive CI builds are
