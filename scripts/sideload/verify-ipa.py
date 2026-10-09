@@ -57,6 +57,23 @@ UNREGISTERED_EXTENSIONS = {
 }
 
 
+def normalize(key: str, value, product_module: str):
+    """Compare by meaning where Xcode or the CLI rewrites a key's form.
+
+    CFBundleURLTypes: the CLI rebuilds it from the deep-link config, keeping the
+    schemes but renaming the entries. UIApplicationSceneManifest: Xcode expands
+    $(PRODUCT_MODULE_NAME). CFBundleDocumentTypes: the CLI regenerates it from
+    bundle.fileAssociations, so it is checked by openable extension instead.
+    """
+    if key == "CFBundleURLTypes":
+        return sorted({scheme for entry in value for scheme in entry.get("CFBundleURLSchemes", [])})
+    if key == "UIApplicationSceneManifest":
+        return json.loads(json.dumps(value).replace("$(PRODUCT_MODULE_NAME)", product_module))
+    if key == "CFBundleDocumentTypes":
+        return None
+    return value
+
+
 def load_plist(path: pathlib.Path) -> dict:
     with path.open("rb") as f:
         return plistlib.load(f)
@@ -107,10 +124,13 @@ def main() -> int:
         binary = (app / info["CFBundleExecutable"]).read_bytes()
         has_extensions = (app / "PlugIns").exists() and any((app / "PlugIns").iterdir())
 
+    module = re.sub(r"\W", "_", info.get("CFBundleExecutable", ""))
     for key, value in expected_info().items():
+        built = normalize(key, info.get(key), module) if key in info else None
+        wanted = [normalize(key, v, module) for v in (value, ALLOWED.get(key, value))]
         if key not in info:
             failures.append(f"Info.plist is missing {key}")
-        elif info[key] != value and (key not in ALLOWED or info[key] != ALLOWED[key]):
+        elif built not in wanted:
             failures.append(
                 f"Info.plist {key} differs from its source:\n"
                 f"      built:  {json.dumps(info[key], default=str)[:600]}\n"
