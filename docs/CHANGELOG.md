@@ -13,6 +13,11 @@
   status, read date, group and tags, and soft-deleting the PDF rows.
 - Imported 21 books and textbooks from a second, newer Calibre library and
   cleared import-time `last_read_at` stamps on all web-imported rows.
+- Put those 21 books into `Calibre Staging` server-side. The desktop grouping
+  never synced: the web import stamps `group_updated_at`, but the deployed
+  apps (built from `origin/main`, before #5921) send none, so the server's
+  ungrouped stamp kept winning. Nulled the stamp on all 23 web-imported rows
+  so they merge like every other book.
 
 ## 2026-09-10
 
