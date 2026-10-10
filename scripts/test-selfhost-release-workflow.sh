@@ -62,9 +62,10 @@ for marker in \
   'macos-latest' \
   'universal-apple-darwin' \
   "APPLE_SIGNING_IDENTITY: '-'" \
-  'TAURI_APPIMAGE_CLI_REV: 503bdbc1eade37d50a64ea7f81dbe853338b7fda' \
-  'if !quick_sharun.exists()' \
-  'cargo install --path "$tauri_source/crates/tauri-cli" --locked --force' \
+  'cargo install tauri-cli --git https://github.com/readest/tauri --rev "$rev" --locked --force' \
+  "TAURI_CEF_CARGO: '1'" \
+  'pnpm tauri build' \
+  'Verify the AppImage bundle contents' \
   'pnpm tauri android build --apk' \
   'pnpm tauri android build --split-per-abi --apk' \
   'Duplicate Android APKs for ABI' \
@@ -111,6 +112,7 @@ for index, job in enumerate(jobs):
 PY
 
 python3 - <<'PY'
+import re
 from pathlib import Path
 
 text = Path('.github/workflows/build-selfhost.yml').read_text()
@@ -119,33 +121,25 @@ end = text.index('  build-macos:', start)
 block = text[start:end]
 build_start = block.index('      - name: Build and collect Linux packages')
 build_env = block.index('        env:', build_start)
-if '        timeout-minutes: 45' not in block[build_start:build_env]:
+if not re.search(r'^        timeout-minutes: \d+', block[build_start:build_env], re.M):
     raise SystemExit('Linux package build is missing its step-level hang timeout')
-if 'cargo install tauri-cli --git' in block:
-    raise SystemExit('Linux AppImage CLI is installed before applying the pinned helper-cache patch')
 
-install_start = block.index('      - name: Install truly portable AppImage bundler')
+# Linux ships on the CEF runtime (upstream #6074). The CLI must come from a
+# pinned commit, never a moving ref, and be installed before the build.
+install_start = block.index('      - name: Install the CEF tauri CLI from readest/tauri')
 install_end = block.index('      - name:', install_start + 8)
 install_block = block[install_start:install_end]
-run_start = install_block.index('        run: |\n') + len('        run: |\n')
-run_script = '\n'.join(
-    line[10:] if line.startswith('          ') else line
-    for line in install_block[run_start:].splitlines()
-)
-expected_patch_start = """download_start = '''  let data = download(
-'''
-download_start_replacement = '''  if !quick_sharun.exists() {
-    let data = download(
-'''"""
-expected_patch_end = """download_end = '''  write_and_make_executable(&quick_sharun, data)?;
-'''
-download_end_replacement = '''    write_and_make_executable(&quick_sharun, data)?;
-  }
-'''"""
-if expected_patch_start not in run_script or expected_patch_end not in run_script:
-    raise SystemExit('Linux AppImage CLI patch does not preserve the exact Rust source indentation')
-if 'raw.githubusercontent.com' in install_block:
-    raise SystemExit('Linux AppImage CLI patch embeds a moving third-party download URL')
+if not re.search(r'^\s+rev=[0-9a-f]{40}$', install_block, re.M):
+    raise SystemExit('Linux CEF tauri CLI is not pinned to a full commit SHA')
+if '--branch' in install_block or 'raw.githubusercontent.com' in install_block:
+    raise SystemExit('Linux CEF tauri CLI install follows a moving ref')
+if install_start > build_start:
+    raise SystemExit('Linux CEF tauri CLI is installed after the package build')
+
+verify = block.index('      - name: Verify the AppImage bundle contents')
+upload = block.index('      - name: Upload Linux artifacts')
+if not build_start < verify < upload:
+    raise SystemExit('Linux AppImage contents are not verified between build and upload')
 PY
 
 python3 - <<'PY'
